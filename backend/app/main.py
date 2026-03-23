@@ -1,0 +1,42 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import settings
+
+from app.routers import llm_config
+
+# =========================================================
+# App Factory
+# =========================================================
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="AI Workflow API",
+        version="1.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+    )
+
+    # -----------------------------------------------------
+    # CORS (tighten in production)
+    # -----------------------------------------------------
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    #Register routers
+    app.include_router(
+    llm_config.router,
+    prefix="/api/v1/llm-configs",
+    tags=["LLM Configs"],
+    )
+    
+    return app
+
+
+# Create application instance
+app = create_app()
