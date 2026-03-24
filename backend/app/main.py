@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 
 from app.routers import llm_config
+from app.routers import tool
 
 # =========================================================
 # App Factory
@@ -28,11 +29,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    #Register routers
+    #Register routers for LLM config module
     app.include_router(
-    llm_config.router,
-    prefix="/api/v1/llm-configs",
-    tags=["LLM Configs"],
+        llm_config.router,
+        prefix="/api/v1/llm-configs",
+        tags=["LLM Configs"],
+    )
+
+    #Register routers for Tools module
+    app.include_router(
+        tool.router,
+        prefix="/api/v1/tools",
+        tags=["tools"],
     )
     
     return app
