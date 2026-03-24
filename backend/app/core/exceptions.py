@@ -22,3 +22,13 @@ class ValidationError(AppError):
 class ConflictError(AppError):
     def __init__(self, message: str = "Conflict occurred"):
         super().__init__(message, status_code=409)
+
+
+class LLMExecutionError(AppError):
+    """
+    Raised when agent execution fails.
+    """
+
+    def __init__(self, agent_name: str, cause: str):
+        message = f"Agent [{agent_name}] failed: {cause}"
+        super().__init__(message, status_code=500)

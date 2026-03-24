@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -117,3 +117,47 @@ class AgentTreeResponse(AgentBaseResponse):
 
 # Fix forward references for recursive model
 AgentTreeResponse.model_rebuild()
+
+# =========================================================
+# Dry Run Schemas 
+# =========================================================
+
+class DryRunRequest(BaseModel):
+    """
+    Request body for testing an agent synchronously.
+    """
+
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        description="User input prompt to the agent"
+    )
+
+    input_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional structured input context"
+    )
+
+
+class DryRunResponse(BaseModel):
+    """
+    Response returned after executing the agent.
+    """
+
+    agent_id: UUID
+    agent_name: str
+
+    output: str = Field(
+        ...,
+        description="Final text output from the agent"
+    )
+
+    duration_ms: int = Field(
+        ...,
+        description="Execution time in milliseconds"
+    )
+
+    model_used: str = Field(
+        ...,
+        description="LLM model used for execution"
+    )

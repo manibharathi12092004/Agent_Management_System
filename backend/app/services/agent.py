@@ -1,9 +1,7 @@
-
-from __future__ import annotations
-
 import os
+import time  # ✅ ADDED
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Optional, Dict, Any  
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +11,13 @@ from app.models.agent import Agent
 from app.repositories.agent import AgentRepository
 from app.repositories.llm_config import LLMConfigRepository
 from app.repositories.tool import ToolRepository
-from app.schemas.agent import AgentCreate
+from app.schemas.agent import (
+    AgentCreate,
+    DryRunRequest,   
+    DryRunResponse,  
+)
 from app.core.exceptions import NotFoundError, ValidationError
+from app.workers.execution_engine import run_single_agent  
 
 
 class AgentService:
@@ -198,3 +201,56 @@ class AgentService:
         await self.db.refresh(agent)
 
         return agent
+    
+    # =========================================================
+    # DRY RUN 
+    # =========================================================
+    async def dry_run(
+        self,
+        agent_id: UUID,
+        request: DryRunRequest,
+    ) -> DryRunResponse:
+        """
+        Execute a single agent synchronously using ADK + Gemini.
+
+        No Celery involved.
+        """
+
+        agent = await self.repo.get_with_relations(agent_id)
+
+        if not agent:
+            raise NotFoundError("Agent not found")
+
+        if not agent.is_active:
+            raise ValidationError("Agent is inactive")
+
+        llm_config = agent.llm_config
+
+        if llm_config is None:
+            llm_config = await self.llm_repo.get_default()
+
+            if llm_config is None:
+                raise ValidationError("No LLM configuration available")
+
+        context: Dict[str, Any] = {
+            "user_prompt": request.prompt,
+            "input_data": request.input_data or {},
+        }
+
+        start_time = time.perf_counter()
+
+        output = await run_single_agent(
+            agent=agent,
+            llm_config=llm_config,
+            context=context,
+        )
+
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+        return DryRunResponse(
+            agent_id=agent.id,
+            agent_name=agent.name,
+            output=output,
+            duration_ms=duration_ms,
+            model_used=llm_config.model_name,
+        )

@@ -1,0 +1,8 @@
+Artificial Intelligence agents are software systems capable of perceiving their environment,
+reasoning about tasks, and taking actions autonomously.
+
+Modern agents often use large language models combined with tools such as web search,
+databases, and code execution.
+
+Multi-agent systems enable collaboration between specialized agents to solve complex problems,
+such as supply chain optimization, software development, and scientific research.

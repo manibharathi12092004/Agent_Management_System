@@ -19,6 +19,7 @@ from app.dependencies import get_db
 from app.services.agent import AgentService
 from app.schemas.agent import AgentCreate, AgentResponse
 from app.core.exceptions import AppError
+from app.schemas.agent import DryRunRequest, DryRunResponse
 
 
 router = APIRouter()
@@ -129,6 +130,35 @@ async def upload_skill_file(
 
     try:
         return await service.upload_skill_file(agent_id, file)
+
+    except AppError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+# =========================================================
+# DRY RUN AGENT 
+# =========================================================
+
+@router.post(
+    "/{agent_id}/dry-run",
+    response_model=DryRunResponse,
+    summary="Dry-run agent synchronously",
+)
+async def dry_run_agent(
+    agent_id: UUID,
+    body: DryRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Execute a single agent immediately using ADK + Gemini.
+
+    This is synchronous (no Celery).
+    Used for testing agent behavior before building workflows.
+    """
+
+    service = AgentService(db)
+
+    try:
+        return await service.dry_run(agent_id, body)
 
     except AppError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

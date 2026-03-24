@@ -1,0 +1,23 @@
+Project: AI Workflow Platform
+
+Attendees:
+- Product Manager
+- Backend Lead
+- AI Engineer
+- QA Engineer
+
+Discussion:
+The team discussed implementing a multi-agent system using Google ADK.
+Key goals include scalability, modular design, and enterprise-grade security.
+
+Decisions:
+- Use Gemini 2.0 Flash for initial deployment
+- Store API keys encrypted in the database
+- Implement dry-run testing before enabling background workers
+
+Action Items:
+- Backend team to finalize execution engine
+- AI team to optimize prompts
+- QA to prepare load testing scenarios
+
+Next Meeting: April 2
