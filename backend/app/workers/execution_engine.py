@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from typing import Dict, Any
+import re
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -34,6 +35,20 @@ from app.core.exceptions import LLMExecutionError
 # =====================================================================
 # Internal Helpers
 # =====================================================================
+def _sanitize_agent_name(name: str) -> str:
+    """
+    Convert arbitrary agent name into ADK-safe identifier.
+    """
+
+    # Replace non-alphanumeric with underscore
+    safe = re.sub(r"\W+", "_", name)
+
+    # Ensure starts with letter or underscore
+    if not re.match(r"[A-Za-z_]", safe):
+        safe = "_" + safe
+
+    return safe
+
 
 def _build_model_string(llm_config: LLMConfig) -> str:
     """
@@ -139,7 +154,7 @@ async def run_single_agent(
         # 4. Create ADK Agent
         # -------------------------------------------------------------
         adk_agent = LlmAgent(
-            name=agent.name,
+            name=_sanitize_agent_name(agent.name),
             model=_build_model_string(llm_config),
             description=agent.description or "",
             instruction=system_prompt,
@@ -166,15 +181,26 @@ Context:
 
 Execute your assigned role and produce the best possible result.
 """
+        # -------------------------------------------------------------
+        # 7. Create session (REQUIRED by ADK)
+        # -------------------------------------------------------------
+        session_id = f"dryrun_agent_{agent.id}"
+        user_id = "dryrun_user"
+
+        await session_service.create_session(
+            app_name="ai_workflow",
+            user_id=user_id,
+            session_id=session_id,
+        )
 
         # -------------------------------------------------------------
-        # 7. Execute agent
+        # 8. Execute agent
         # -------------------------------------------------------------
         response_text = ""
 
         async for event in runner.run_async(
-            user_id="system",
-            session_id=str(uuid.uuid4()),
+            user_id="dryrun_user",
+            session_id=f"dryrun_agent_{agent.id}",
             new_message=genai_types.Content(
                 role="user",
                 parts=[genai_types.Part(text=prompt)],
