@@ -6,6 +6,7 @@ from app.tools.file_system import (
     count_lines,
     write_file,
 )
+from app.tools.web_tools import web_tool
 
 # ---------------------------------------------------------
 # UNIFIED FILESYSTEM TOOL
@@ -47,6 +48,7 @@ def file_system(
 TOOL_REGISTRY: Dict[str, Callable] = {
     # Matches DB function_name
     "file_system": file_system,
+    "web_tool": web_tool,
 }
 
 

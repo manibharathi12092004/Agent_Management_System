@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     ENCRYPTION_KEY: str
 
+    # Tavily
+    TAVILY_API_KEY: str
 
     # File Uploads
 

@@ -11,6 +11,7 @@ def _safe_path(user_path: str) -> Path:
     """
     target = (BASE_DIR / user_path).resolve()
 
+
     if not str(target).startswith(str(BASE_DIR)):
         raise ValueError("Access outside allowed directory is forbidden.")
 
@@ -18,7 +19,7 @@ def _safe_path(user_path: str) -> Path:
 
 
 # ---------------------------------------------------------
-# TOOL FUNCTIONS (ADK-compatible)
+# TOOL FUNCTIONS 
 # ---------------------------------------------------------
 
 def list_files(path: str = "") -> str:
