@@ -6,6 +6,7 @@ from app.config import settings
 from app.routers import llm_config
 from app.routers import tool
 from app.routers import agent
+from app.routers import dashboard
 
 # =========================================================
 # App Factory
@@ -41,7 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(
         tool.router,
         prefix="/api/v1/tools",
-        tags=["tools"],
+        tags=["Tools"],
     )
 
     #Register routers for Agent module
@@ -49,6 +50,13 @@ def create_app() -> FastAPI:
         agent.router,
         prefix="/api/v1/agents",
         tags=["Agents"],
+    )
+    
+    #Register routers for Dashboard
+    app.include_router(
+        dashboard.router,
+        prefix="/api/v1/dashboard",
+        tags=["Dashboard"],
     )
     
     return app

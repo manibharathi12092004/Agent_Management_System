@@ -5,6 +5,7 @@ from app.tools.file_system import (
     read_file,
     count_lines,
     write_file,
+    search_files,
 )
 from app.tools.web_tools import web_tool
 
@@ -16,14 +17,16 @@ def file_system(
     action: str,
     path: str = "",
     content: str = "",
+    keyword: str = "",
 ) -> str:
     """
     Unified filesystem tool entry point.
 
     Args:
-        action: One of ["list", "read", "count", "write"]
+        action: One of ["list", "read", "count", "write", "search"]
         path: File or directory path
         content: Used only for write action
+        keyword: Used only for search action
     """
 
     if action == "list":
@@ -37,6 +40,11 @@ def file_system(
 
     if action == "write":
         return write_file(path, content)
+
+    if action == "search":
+        if not keyword:
+            return "Please provide a keyword to search for."
+        return search_files(keyword, path)
 
     return "Unknown filesystem action."
 

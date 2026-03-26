@@ -1,26 +1,22 @@
 """
-Agent Execution Engine — Google ADK + Gemini
+Agent Execution Engine — Google ADK + Multi-Provider
 
-Runs a single agent with:
-- Gemini LLM (via Google ADK)
-- Tool invocation
-- Skill file or system prompt
-- Context support
-- DB-stored encrypted API keys
-
-Used for:
-- Agent dry-run (synchronous)
-- Future workflow execution
+Supports:
+- Gemini
+- OpenAI
+- Anthropic
+- Ollama (OpenAI-compatible via LiteLlm)
 """
 
 from __future__ import annotations
 
 import os
-import uuid
-from typing import Dict, Any
 import re
+import json
+from typing import Dict, Any
 
 from google.adk.agents import LlmAgent
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
@@ -33,86 +29,92 @@ from app.core.exceptions import LLMExecutionError
 
 
 # =====================================================================
-# Internal Helpers
+# Helpers
 # =====================================================================
+
 def _sanitize_agent_name(name: str) -> str:
-    """
-    Convert arbitrary agent name into ADK-safe identifier.
-    """
-
-    # Replace non-alphanumeric with underscore
     safe = re.sub(r"\W+", "_", name)
-
-    # Ensure starts with letter or underscore
     if not re.match(r"[A-Za-z_]", safe):
         safe = "_" + safe
-
     return safe
 
 
-def _build_model_string(llm_config: LLMConfig) -> str:
-    """
-    Convert provider + model into ADK-compatible model string.
-    """
+# ⭐ MODEL STRING BUILDER (NO LiteLLM)
 
-    provider_map = {
-        "gemini": llm_config.model_name,
-        "openai": f"openai/{llm_config.model_name}",
-        "anthropic": f"anthropic/{llm_config.model_name}",
-        "ollama": f"ollama/{llm_config.model_name}",
-    }
+def _build_model(llm_config: LLMConfig):
+    """
+    Returns a model string for Gemini (native ADK)
+    or a LiteLlm wrapper for OpenAI / Anthropic / Ollama.
+    """
+    provider = llm_config.provider.lower()
+    model_name = llm_config.model_name
+    api_key = decrypt_api_key(llm_config.api_key_encrypted)
 
-    return provider_map.get(llm_config.provider, llm_config.model_name)
+    if provider == "gemini":
+        return model_name
+
+    if provider == "openai":
+        return LiteLlm(model=f"openai/{model_name}", api_key=api_key)
+
+    if provider == "anthropic":
+        return LiteLlm(model=f"anthropic/{model_name}", api_key=api_key)
+
+    if provider == "ollama":
+        base_url = (llm_config.base_url or "http://localhost:11434").rstrip("/")
+        return LiteLlm(
+            model=f"openai/{model_name}",
+            api_base=f"{base_url}/v1",
+            api_key="ollama",
+        )
+
+    raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
 
 
 def _load_system_prompt(agent: Agent) -> str:
-    """
-    Load agent instructions.
-
-    Priority:
-    1) Skill file (.md)
-    2) Inline system_prompt
-    """
-
     if agent.skill_file_path:
         try:
             with open(agent.skill_file_path, "r", encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
-            pass  # fallback to inline prompt
+            pass
 
     return agent.system_prompt or ""
 
 
+# =====================================================================
+# Provider Environment Setup
+# =====================================================================
+
 def _set_provider_api_key(llm_config: LLMConfig) -> None:
-    """
-    Set runtime environment variables for LLM providers
-    using DB-stored encrypted API keys.
-    """
-
-    api_key = decrypt_api_key(llm_config.api_key_encrypted)
-
+    """Only Gemini needs an env var — all other providers pass creds into LiteLlm directly."""
     provider = llm_config.provider.lower()
+    api_key = decrypt_api_key(llm_config.api_key_encrypted)
 
     if provider == "gemini":
         os.environ["GOOGLE_API_KEY"] = api_key
-
     elif provider == "openai":
         os.environ["OPENAI_API_KEY"] = api_key
-
     elif provider == "anthropic":
         os.environ["ANTHROPIC_API_KEY"] = api_key
-
-    elif llm_config.provider == "ollama":
-        # Usually local; API key may not be required
-        pass
-
+    elif provider == "ollama":
+        pass  # api_base and api_key passed directly into LiteLlm
     else:
         raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
 
 
+def _cleanup_provider_env() -> None:
+    for var in [
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE",
+        "OPENAI_BASE_URL",
+        "GOOGLE_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ]:
+        os.environ.pop(var, None)
+
+
 # =====================================================================
-# Public Execution Function
+# PUBLIC EXECUTION FUNCTION
 # =====================================================================
 
 async def run_single_agent(
@@ -120,50 +122,29 @@ async def run_single_agent(
     llm_config: LLMConfig,
     context: Dict[str, Any] | None = None,
 ) -> str:
-    """
-    Execute a single agent using Google ADK.
-
-    Args:
-        agent: Agent ORM object (with tools loaded)
-        llm_config: Associated LLM configuration
-        context: Optional input context
-
-    Returns:
-        Final text response from the agent
-    """
 
     try:
-        # -------------------------------------------------------------
-        # 1. Configure provider API key (from DB)
-        # -------------------------------------------------------------
+        # 1️⃣ Configure provider
         _set_provider_api_key(llm_config)
 
-        # -------------------------------------------------------------
-        # 2. Prepare system instructions
-        # -------------------------------------------------------------
+        # 2️⃣ Load instructions
         system_prompt = _load_system_prompt(agent)
 
-        # -------------------------------------------------------------
-        # 3. Load tool functions
-        # -------------------------------------------------------------
+        # 3️⃣ Load tools
         tool_functions = get_tool_functions(
             [tool.function_name for tool in agent.tools]
         )
 
-        # -------------------------------------------------------------
-        # 4. Create ADK Agent
-        # -------------------------------------------------------------
+        # 4️⃣ Create ADK agent
         adk_agent = LlmAgent(
             name=_sanitize_agent_name(agent.name),
-            model=_build_model_string(llm_config),
+            model=_build_model(llm_config),
             description=agent.description or "",
             instruction=system_prompt,
             tools=tool_functions,
         )
 
-        # -------------------------------------------------------------
-        # 5. Create Runner + Session
-        # -------------------------------------------------------------
+        # 5️⃣ Runner + session
         session_service = InMemorySessionService()
 
         runner = Runner(
@@ -172,18 +153,14 @@ async def run_single_agent(
             session_service=session_service,
         )
 
-        # -------------------------------------------------------------
-        # 6. Build user prompt
-        # -------------------------------------------------------------
+        # 6️⃣ Prompt
         prompt = f"""
 Context:
-{context or {}}
+{json.dumps(context or {}, indent=2)}
 
 Execute your assigned role and produce the best possible result.
 """
-        # -------------------------------------------------------------
-        # 7. Create session (REQUIRED by ADK)
-        # -------------------------------------------------------------
+
         session_id = f"dryrun_agent_{agent.id}"
         user_id = "dryrun_user"
 
@@ -193,14 +170,12 @@ Execute your assigned role and produce the best possible result.
             session_id=session_id,
         )
 
-        # -------------------------------------------------------------
-        # 8. Execute agent
-        # -------------------------------------------------------------
+        # 7️⃣ Run agent
         response_text = ""
 
         async for event in runner.run_async(
-            user_id="dryrun_user",
-            session_id=f"dryrun_agent_{agent.id}",
+            user_id=user_id,
+            session_id=session_id,
             new_message=genai_types.Content(
                 role="user",
                 parts=[genai_types.Part(text=prompt)],
@@ -215,3 +190,6 @@ Execute your assigned role and produce the best possible result.
 
     except Exception as exc:
         raise LLMExecutionError(agent.name, str(exc))
+
+    finally:
+        _cleanup_provider_env()

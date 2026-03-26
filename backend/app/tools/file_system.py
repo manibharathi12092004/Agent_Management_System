@@ -103,3 +103,49 @@ def write_file(path: str, content: str) -> str:
     target.write_text(content, encoding="utf-8")
 
     return "File written successfully."
+
+
+def search_files(keyword: str, path: str = "") -> str:
+    """
+    Search for a keyword across all files in a directory (recursive).
+
+    Args:
+        keyword: Word or phrase to search for.
+        path: Relative directory path to search in (default: root).
+
+    Returns:
+        Each matching file's path and the lines containing the keyword.
+    """
+    target = _safe_path(path)
+
+    if not target.exists():
+        return "Directory does not exist."
+
+    if not target.is_dir():
+        return "Path is not a directory."
+
+    keyword_lower = keyword.lower()
+    results = []
+
+    for file in target.rglob("*"):
+        if not file.is_file():
+            continue
+        try:
+            lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except Exception:
+            continue
+
+        matches = [
+            f"  Line {i + 1}: {line.strip()}"
+            for i, line in enumerate(lines)
+            if keyword_lower in line.lower()
+        ]
+
+        if matches:
+            rel_path = file.relative_to(BASE_DIR)
+            results.append(f"📄 {rel_path}:\n" + "\n".join(matches))
+
+    if not results:
+        return f"No files found containing '{keyword}'."
+
+    return f"Found '{keyword}' in {len(results)} file(s):\n\n" + "\n\n".join(results)
