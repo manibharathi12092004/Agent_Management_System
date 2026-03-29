@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import PageWrapper from '../../components/layout/PageWrapper';
+import Modal from '../../components/ui/Modal';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toast';
 import { toolService } from '../../services/toolService';
 import { agentService } from '../../services/agentService';
-import { Wrench, Users, Check, Loader2, ChevronRight, X } from 'lucide-react';
+import { Wrench, Users, Check, Loader2, X } from 'lucide-react';
 
 function ToolCard({ tool, selected, onClick }) {
   const typeColors = {
@@ -121,16 +122,10 @@ function AssignmentPanel({ tool, agents, onClose, onSuccess }) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900">Manage Assignment</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            <span className="font-medium text-indigo-600">{tool.name}</span>
-          </p>
-        </div>
-        <button onClick={onClose} className="btn-icon text-gray-400 hover:text-gray-700 hover:bg-gray-100">
-          <X size={16} strokeWidth={2} />
-        </button>
+      <div className="mb-4">
+        <p className="text-xs text-gray-400">
+          Check agents to assign, uncheck to remove
+        </p>
       </div>
 
       {/* Select all */}
@@ -264,45 +259,47 @@ export default function ToolsPage() {
 
   return (
     <PageWrapper title="Tools Management" subtitle="Assign predefined tools to agents">
-      <div className="flex h-full overflow-hidden">
-
-        {/* Left: tool list */}
-        <div className={`flex-1 overflow-y-auto p-6 transition-all ${selectedTool ? 'pr-3' : ''}`}>
-          {loading ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          ) : tools.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <Wrench size={40} className="text-gray-200 mb-3" strokeWidth={1.5} />
-              <p className="text-sm text-gray-500">No tools available</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {tools.map((tool) => (
-                <ToolCard
-                  key={tool.id}
-                  tool={tool}
-                  selected={selectedTool?.id === tool.id}
-                  onClick={(t) => setSelectedTool(selectedTool?.id === t.id ? null : t)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: assignment panel */}
-        {selectedTool && (
-          <div className="w-80 flex-shrink-0 border-l border-gray-100 bg-white p-5 overflow-y-auto animate-slide-in-right">
-            <AssignmentPanel
-              tool={selectedTool}
-              agents={agents}
-              onClose={() => setSelectedTool(null)}
-              onSuccess={() => { load(); setSelectedTool(null); }}
-            />
+      <div className="flex-1 overflow-y-auto p-6">
+        {loading ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : tools.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center">
+            <Wrench size={40} className="text-gray-200 mb-3" strokeWidth={1.5} />
+            <p className="text-sm text-gray-500">No tools available</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            {tools.map((tool) => (
+              <ToolCard
+                key={tool.id}
+                tool={tool}
+                selected={selectedTool?.id === tool.id}
+                onClick={(t) => setSelectedTool(selectedTool?.id === t.id ? null : t)}
+              />
+            ))}
           </div>
         )}
       </div>
+
+      {/* Centered assignment modal */}
+      <Modal
+        open={!!selectedTool}
+        onClose={() => setSelectedTool(null)}
+        title={`Assign: ${selectedTool?.name || ''}`}
+        subtitle="Select agents to assign or unassign this tool"
+        width="max-w-xl"
+      >
+        {selectedTool && (
+          <AssignmentPanel
+            tool={selectedTool}
+            agents={agents}
+            onClose={() => setSelectedTool(null)}
+            onSuccess={() => { load(); setSelectedTool(null); }}
+          />
+        )}
+      </Modal>
     </PageWrapper>
   );
 }

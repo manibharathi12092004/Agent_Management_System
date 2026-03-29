@@ -230,6 +230,30 @@ Rules:
             logger.error(f"Failed to parse LLM response: {e}\nResponse: {text}")
             raise ValidationError("Failed to parse LLM response as JSON array")
 
+    async def dry_run_stream(self, task_id: UUID, request: DryRunRequest):
+        """Stream step results one by one using ADK SequentialAgent."""
+        from app.workers.execution_engine import run_workflow_stream
+
+        task = await self.repo.get_with_steps(task_id)
+        if not task:
+            raise NotFoundError(f"Task {task_id} not found")
+        if not task.steps:
+            raise ValidationError("Task has no steps to execute")
+
+        sorted_steps = sorted(task.steps, key=lambda s: s.step_order)
+        default_llm = await self.llm_repo.get_default()
+        if not default_llm:
+            raise ValidationError("No default LLM configuration found")
+
+        effective_input = {
+            "task": task.name,
+            "description": task.description or task.name,
+            **request.input_data,
+        }
+
+        async for step_result in run_workflow_stream(sorted_steps, default_llm, effective_input):
+            yield step_result
+
     # ── Dry Run ───────────────────────────────────────────────────────
 
     async def dry_run(self, task_id: UUID, request: DryRunRequest) -> DryRunResponse:
@@ -250,7 +274,15 @@ Rules:
             raise ValidationError("No default LLM configuration found")
 
         t0 = perf_counter()
-        results = await run_workflow(sorted_steps, default_llm, request.input_data)
+
+        # Merge task context into input_data so step 1 always has the task goal
+        effective_input = {
+            "task": task.name,
+            "description": task.description or task.name,
+            **request.input_data,
+        }
+
+        results = await run_workflow(sorted_steps, default_llm, effective_input)
         total_ms = int((perf_counter() - t0) * 1000)
 
         return DryRunResponse(

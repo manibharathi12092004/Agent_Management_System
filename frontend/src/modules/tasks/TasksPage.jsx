@@ -120,42 +120,87 @@ export default function TasksPage() {
     if (running) return;
 
     setRunning(true);
-    setStepResults({ __running: true });
     setClickedNode(null);
 
+    // Mark all agent nodes as running initially, then update one by one
+    const initialResults = { __running: true };
+    canvasSteps.forEach(s => {
+      initialResults[s.agent_id] = { status: 'running', output: '', duration_ms: 0 };
+    });
+    // Only first step is actually running — rest are idle
+    canvasSteps.forEach((s, i) => {
+      initialResults[s.agent_id] = { status: i === 0 ? 'running' : 'idle', output: '', duration_ms: 0 };
+    });
+    setStepResults({ ...initialResults });
+
     try {
-      const res = await taskService.dryRun(selectedTask.id, {});
-      const results = res.data.results || [];
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/tasks/${selectedTask.id}/dry-run-stream`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input_data: {} }) }
+      );
 
-      // Build results map keyed by agent_id
-      const map = { __running: false };
-      let finalOutput = '';
-      results.forEach(r => {
-        const status = r.skipped ? 'skipped' : r.error ? 'failed' : 'success';
-        map[r.agent_id] = {
-          status,
-          output: r.error || r.output,
-          duration_ms: r.duration_ms,
-        };
-        if (!r.error && !r.skipped) finalOutput = r.output;
-      });
-      const anyFailed = results.some(r => r.error);
-      map.__done = !anyFailed;
-      map.__finalOutput = finalOutput;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const accumulated = {};
+      let stepIndex = 0;
 
-      setStepResults(map);
-      if (anyFailed) {
-        toast.error('Workflow stopped — a step failed');
-      } else {
-        toast.success('Workflow completed');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') break;
+
+          try {
+            const result = JSON.parse(payload);
+            const status = result.skipped ? 'skipped' : result.error ? 'failed' : 'success';
+            accumulated[result.agent_id] = { status, output: result.error || result.output, duration_ms: result.duration_ms };
+            stepIndex++;
+
+            // Mark next step as running
+            const nextStep = canvasSteps[stepIndex];
+            const nextRunning = nextStep && !result.error && !result.skipped
+              ? { [nextStep.agent_id]: { status: 'running', output: '', duration_ms: 0 } }
+              : {};
+
+            setStepResults(prev => ({
+              ...prev,
+              __running: stepIndex < canvasSteps.length,
+              ...accumulated,
+              ...nextRunning,
+            }));
+          } catch { /* skip malformed */ }
+        }
       }
+
+      const anyFailed = Object.values(accumulated).some(r => r.status === 'failed');
+      let finalOutput = '';
+      Object.values(accumulated).forEach(r => { if (r.status === 'success') finalOutput = r.output; });
+
+      setStepResults(prev => ({
+        ...prev,
+        __running: false,
+        __done: !anyFailed,
+        __finalOutput: finalOutput,
+        ...accumulated,
+      }));
+
+      if (anyFailed) toast.error('Workflow stopped — a step failed');
+      else toast.success('Workflow completed');
+
     } catch (err) {
       setStepResults({ __running: false, __done: false });
-      toast.error(err.response?.data?.detail || 'Dry run failed');
+      toast.error('Dry run failed');
     } finally {
       setRunning(false);
     }
-  }, [selectedTask, running]);
+  }, [selectedTask, running, canvasSteps]);
 
   // ── Node click handler ─────────────────────────────────────────────
   const handleNodeClick = useCallback((node) => {

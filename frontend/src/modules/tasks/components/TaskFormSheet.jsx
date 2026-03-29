@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Loader2, Play, Save, AlertCircle, Sparkles, Users } from 'lucide-react';
-import Sheet from '../../../components/ui/Sheet';
+import Modal from '../../../components/ui/Modal';
 import { toast } from '../../../components/ui/Toast';
 import { taskService } from '../../../services/taskService';
 import { agentService } from '../../../services/agentService';
@@ -199,8 +199,8 @@ export default function TaskFormSheet({ open, onClose, task, onSaved }) {
   );
 
   return (
-    <Sheet open={open} onClose={onClose} title={task?.id ? 'Edit Task' : 'New Task'}
-      subtitle="Configure your multi-agent workflow" footer={footer} width="w-[480px]">
+    <Modal open={open} onClose={onClose} title={task?.id ? 'Edit Task' : 'New Task'}
+      subtitle="Configure your multi-agent workflow" footer={footer} width="max-w-2xl">
       <div className="space-y-5">
 
         {/* 1. Task Name */}
@@ -290,6 +290,6 @@ export default function TaskFormSheet({ open, onClose, task, onSaved }) {
         )}
 
       </div>
-    </Sheet>
+    </Modal>
   );
 }

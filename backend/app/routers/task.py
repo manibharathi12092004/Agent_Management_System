@@ -136,7 +136,35 @@ async def delete_task(
 
 
 # =========================================================
-# DRY RUN TASK
+# DRY RUN TASK — streaming (step-by-step results)
+# =========================================================
+@router.post(
+    "/{task_id}/dry-run-stream",
+    summary="Dry-run task workflow with streaming step results",
+)
+async def dry_run_task_stream(
+    task_id: UUID,
+    body: DryRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import StreamingResponse
+    import json as _json
+
+    service = TaskService(db)
+
+    async def generate():
+        try:
+            async for step_result in service.dry_run_stream(task_id, body):
+                yield f"data: {_json.dumps(step_result)}\n\n"
+            yield "data: [DONE]\n\n"
+        except AppError as e:
+            yield f"data: {_json.dumps({'error': e.message})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# =========================================================
+# DRY RUN TASK — synchronous (returns full results at once)
 # =========================================================
 @router.post(
     "/{task_id}/dry-run",

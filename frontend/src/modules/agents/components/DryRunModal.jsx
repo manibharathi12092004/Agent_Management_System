@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Sheet from '../../../components/ui/Sheet';
+import Modal from '../../../components/ui/Modal';
 import { Play, Loader2, Clock, Cpu, CheckCircle, XCircle, Bot } from 'lucide-react';
 import { agentService } from '../../../services/agentService';
 import { parseMarkdown } from '../../../utils/markdownParser';
@@ -37,13 +37,13 @@ export default function DryRunModal({ agent, onClose }) {
   );
 
   return (
-    <Sheet
+    <Modal
       open={!!agent}
       onClose={onClose}
       title="Test Agent"
       subtitle={agent?.name}
       footer={footer}
-      width="w-[560px]"
+      width="max-w-2xl"
     >
       <div className="space-y-5">
         {/* Agent info */}
@@ -135,6 +135,6 @@ export default function DryRunModal({ agent, onClose }) {
           </div>
         )}
       </div>
-    </Sheet>
+    </Modal>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sheet from '../../../components/ui/Sheet';
+import Modal from '../../../components/ui/Modal';
 import { toast } from '../../../components/ui/Toast';
 import { agentService } from '../../../services/agentService';
 import { llmService } from '../../../services/llmService';
@@ -109,7 +109,7 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
   );
 
   return (
-    <Sheet
+    <Modal
       open={open}
       onClose={onClose}
       title={isEdit ? 'Edit Agent' : 'New Agent'}
@@ -121,6 +121,7 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
             : 'Domain will be auto-assigned by AI'
       }
       footer={footer}
+      width="max-w-2xl"
     >
       <div className="space-y-5">
         {/* Name */}
@@ -228,6 +229,6 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
           </p>
         </div>
       </div>
-    </Sheet>
+    </Modal>
   );
 }

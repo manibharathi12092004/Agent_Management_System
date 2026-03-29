@@ -13,9 +13,12 @@ from __future__ import annotations
 import os
 import re
 import json
-from typing import Dict, Any
+from datetime import datetime
+from time import perf_counter
+from typing import Dict, Any, AsyncIterator
 
 from google.adk.agents import LlmAgent
+from google.adk.agents.sequential_agent import SequentialAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -39,13 +42,7 @@ def _sanitize_agent_name(name: str) -> str:
     return safe
 
 
-# ⭐ MODEL STRING BUILDER (NO LiteLLM)
-
 def _build_model(llm_config: LLMConfig):
-    """
-    Returns a model string for Gemini (native ADK)
-    or a LiteLlm wrapper for OpenAI / Anthropic / Ollama.
-    """
     provider = llm_config.provider.lower()
     model_name = llm_config.model_name
     api_key = decrypt_api_key(llm_config.api_key_encrypted)
@@ -61,11 +58,9 @@ def _build_model(llm_config: LLMConfig):
 
     if provider == "ollama":
         base_url = (llm_config.base_url or "http://localhost:11434").rstrip("/")
-        return LiteLlm(
-            model=f"openai/{model_name}",
-            api_base=f"{base_url}/v1",
-            api_key="ollama",
-        )
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        return LiteLlm(model=f"openai/{model_name}", api_base=base_url, api_key="ollama")
 
     raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
 
@@ -77,7 +72,6 @@ def _load_system_prompt(agent: Agent) -> str:
                 return f.read()
         except FileNotFoundError:
             pass
-
     return agent.system_prompt or ""
 
 
@@ -86,7 +80,6 @@ def _load_system_prompt(agent: Agent) -> str:
 # =====================================================================
 
 def _set_provider_api_key(llm_config: LLMConfig) -> None:
-    """Only Gemini needs an env var — all other providers pass creds into LiteLlm directly."""
     provider = llm_config.provider.lower()
     api_key = decrypt_api_key(llm_config.api_key_encrypted)
 
@@ -97,24 +90,19 @@ def _set_provider_api_key(llm_config: LLMConfig) -> None:
     elif provider == "anthropic":
         os.environ["ANTHROPIC_API_KEY"] = api_key
     elif provider == "ollama":
-        pass  # api_base and api_key passed directly into LiteLlm
+        pass
     else:
         raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
 
 
 def _cleanup_provider_env() -> None:
-    for var in [
-        "OPENAI_API_KEY",
-        "OPENAI_API_BASE",
-        "OPENAI_BASE_URL",
-        "GOOGLE_API_KEY",
-        "ANTHROPIC_API_KEY",
-    ]:
+    for var in ["OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL",
+                "GOOGLE_API_KEY", "ANTHROPIC_API_KEY"]:
         os.environ.pop(var, None)
 
 
 # =====================================================================
-# PUBLIC EXECUTION FUNCTION
+# SINGLE AGENT EXECUTION  (used by agent dry-run)
 # =====================================================================
 
 async def run_single_agent(
@@ -124,18 +112,12 @@ async def run_single_agent(
 ) -> str:
 
     try:
-        # 1️⃣ Configure provider
         _set_provider_api_key(llm_config)
-
-        # 2️⃣ Load instructions
         system_prompt = _load_system_prompt(agent)
-
-        # 3️⃣ Load tools
         tool_functions = get_tool_functions(
             [tool.function_name for tool in agent.tools]
         )
 
-        # 4️⃣ Create ADK agent
         adk_agent = LlmAgent(
             name=_sanitize_agent_name(agent.name),
             model=_build_model(llm_config),
@@ -144,17 +126,16 @@ async def run_single_agent(
             tools=tool_functions,
         )
 
-        # 5️⃣ Runner + session
         session_service = InMemorySessionService()
-
         runner = Runner(
             agent=adk_agent,
             app_name="ai_workflow",
             session_service=session_service,
         )
 
-        # 6️⃣ Prompt
-        prompt = f"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        prompt = f"""Current date and time: {now}
+
 Context:
 {json.dumps(context or {}, indent=2)}
 
@@ -170,7 +151,6 @@ Execute your assigned role and produce the best possible result.
             session_id=session_id,
         )
 
-        # 7️⃣ Run agent
         response_text = ""
 
         async for event in runner.run_async(
@@ -196,26 +176,27 @@ Execute your assigned role and produce the best possible result.
 
 
 # =====================================================================
-# WORKFLOW EXECUTION (SequentialAgent pipeline)
+# WORKFLOW EXECUTION — ADK SequentialAgent with live streaming
 # =====================================================================
 
-async def run_workflow(
-    steps: list,          # list of TaskWorkflowStep ORM objects sorted by step_order
-    default_llm_config,   # LLMConfig ORM object
+async def run_workflow_stream(
+    steps: list,
+    default_llm_config,
     input_data: dict,
-) -> list:                # list of StepResult dicts
+) -> AsyncIterator[dict]:
     """
     Execute a multi-step workflow using ADK SequentialAgent.
-    Each step becomes an LlmAgent with output_key=f"step_{i}_output".
-    ADK passes state between agents via {variable} template substitution.
-    """
-    from google.adk.agents.sequential_agent import SequentialAgent
-    from time import perf_counter
 
+    - Step 1: input embedded directly in instruction (no session state needed)
+    - Step 2+: reads {step_N_output} from ADK session state (native chaining)
+    - Per-step timing: tracked by watching when each output_key appears in state
+    - Yields each step result as soon as it completes (for live streaming)
+    - Stops on first failure and marks remaining steps as skipped
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     adk_agents = []
 
     for i, step in enumerate(steps, start=1):
-        # Resolve llm_config: step override → agent's config → default
         llm_config = (
             step.llm_override
             or getattr(step.agent, "llm_config", None)
@@ -225,23 +206,36 @@ async def run_workflow(
         _set_provider_api_key(llm_config)
         model = _build_model(llm_config)
         system_prompt = _load_system_prompt(step.agent)
-
         output_key = f"step_{i}_output"
 
         if i == 1:
-            instruction = f"{system_prompt}\n\nUser input: {{user_input}}"
+            # Embed input directly — avoids session state injection issue
+            user_input_str = json.dumps(input_data) if input_data else "Execute your task."
+            instruction = (
+                f"{system_prompt}\n\n"
+                f"Current date and time: {now}\n\n"
+                f"Task input:\n{user_input_str}"
+            )
         else:
+            # ADK substitutes {step_N_output} from session state written by previous agent
             prev_key = f"step_{i - 1}_output"
-            instruction = f"{system_prompt}\n\nPrevious step output:\n{{{prev_key}}}"
+            task_ctx = json.dumps({
+                k: v for k, v in input_data.items()
+                if k in ("task", "description")
+            })
+            instruction = (
+                f"{system_prompt}\n\n"
+                f"Current date and time: {now}\n\n"
+                f"Task context: {task_ctx}\n\n"
+                f"Previous step output:\n{{{prev_key}}}"
+            )
 
         tool_functions = get_tool_functions(
             [tool.function_name for tool in step.agent.tools]
         )
 
-        sanitized_name = _sanitize_agent_name(f"{step.agent.name}_step{i}")
-
         adk_agent = LlmAgent(
-            name=sanitized_name,
+            name=_sanitize_agent_name(f"{step.agent.name}_step{i}"),
             model=model,
             instruction=instruction,
             tools=tool_functions,
@@ -264,16 +258,15 @@ async def run_workflow(
     session_id = "workflow_run"
     user_id = "workflow_user"
 
-    session = await session_service.create_session(
+    await session_service.create_session(
         app_name="ai_workflow",
         user_id=user_id,
         session_id=session_id,
     )
 
-    # Inject initial input into session state
-    session.state["user_input"] = json.dumps(input_data)
-
-    t0 = perf_counter()
+    # Track which steps have been yielded and their start times
+    completed_steps: set[int] = set()
+    step_start_times: dict[int, float] = {1: perf_counter()}
     pipeline_error: str | None = None
 
     try:
@@ -285,31 +278,67 @@ async def run_workflow(
                 parts=[genai_types.Part(text=json.dumps(input_data))],
             ),
         ):
-            pass  # SequentialAgent manages sub-agent execution internally
+            # After every event, check if any new step output appeared in state
+            current_session = await session_service.get_session(
+                app_name="ai_workflow",
+                user_id=user_id,
+                session_id=session_id,
+            )
+            state = current_session.state if current_session else {}
+
+            for i, step in enumerate(steps, start=1):
+                if i in completed_steps:
+                    continue
+
+                output_key = f"step_{i}_output"
+                if output_key in state:
+                    t_end = perf_counter()
+                    t_start = step_start_times.get(i, t_end)
+                    duration_ms = int((t_end - t_start) * 1000)
+                    output = state[output_key]
+
+                    completed_steps.add(i)
+
+                    # Record start time for next step
+                    if i + 1 <= len(steps):
+                        step_start_times[i + 1] = perf_counter()
+
+                    yield {
+                        "step_order": step.step_order,
+                        "agent_id": str(step.agent_id),
+                        "agent_name": step.agent.name,
+                        "output": output,
+                        "duration_ms": duration_ms,
+                        "error": None,
+                        "skipped": False,
+                    }
+
     except Exception as exc:
         pipeline_error = str(exc)
 
-    # Retrieve final session state
-    final_session = await session_service.get_session(
-        app_name="ai_workflow",
-        user_id=user_id,
-        session_id=session_id,
-    )
-    state = final_session.state if final_session else {}
-
-    total_elapsed = perf_counter() - t0
-    per_step_ms = int((total_elapsed * 1000) / len(steps)) if steps else 0
-
-    results = []
-    failed_at: int | None = None  # step index (1-based) where failure occurred
-
+    # Yield any steps that failed (no output in state) or were skipped
+    failed_emitted = False
     for i, step in enumerate(steps, start=1):
-        output_key = f"step_{i}_output"
-        output = state.get(output_key, "")
+        if i in completed_steps:
+            continue
 
-        if failed_at is not None:
-            # Steps after the failure were never executed — mark as skipped
-            results.append({
+        output_key = f"step_{i}_output"
+
+        if not failed_emitted:
+            # This is the step that failed
+            failed_emitted = True
+            yield {
+                "step_order": step.step_order,
+                "agent_id": str(step.agent_id),
+                "agent_name": step.agent.name,
+                "output": "",
+                "duration_ms": 0,
+                "error": pipeline_error or "Step did not produce output",
+                "skipped": False,
+            }
+        else:
+            # Subsequent steps were never run
+            yield {
                 "step_order": step.step_order,
                 "agent_id": str(step.agent_id),
                 "agent_name": step.agent.name,
@@ -317,31 +346,18 @@ async def run_workflow(
                 "duration_ms": 0,
                 "error": None,
                 "skipped": True,
-            })
-            continue
-
-        if not output and pipeline_error:
-            # This step failed — record error and stop processing further steps
-            failed_at = i
-            results.append({
-                "step_order": step.step_order,
-                "agent_id": str(step.agent_id),
-                "agent_name": step.agent.name,
-                "output": "",
-                "duration_ms": per_step_ms,
-                "error": pipeline_error,
-                "skipped": False,
-            })
-        else:
-            results.append({
-                "step_order": step.step_order,
-                "agent_id": str(step.agent_id),
-                "agent_name": step.agent.name,
-                "output": output,
-                "duration_ms": per_step_ms,
-                "error": None,
-                "skipped": False,
-            })
+            }
 
     _cleanup_provider_env()
+
+
+async def run_workflow(
+    steps: list,
+    default_llm_config,
+    input_data: dict,
+) -> list:
+    """Collect all streaming results into a list (used by synchronous dry-run endpoint)."""
+    results = []
+    async for result in run_workflow_stream(steps, default_llm_config, input_data):
+        results.append(result)
     return results

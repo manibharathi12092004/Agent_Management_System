@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import PageWrapper from '../../components/layout/PageWrapper';
-import Sheet from '../../components/ui/Sheet';
+import Modal from '../../components/ui/Modal';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toast';
@@ -313,14 +313,15 @@ export default function LLMSettingsPage() {
         </div>
       </PageWrapper>
 
-      <Sheet
+      <Modal
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         title={editing ? 'Edit Configuration' : 'New LLM Configuration'}
         subtitle={editing ? `Editing ${editing.name}` : 'Connect an AI model provider'}
+        width="max-w-xl"
       >
         <ConfigForm config={editing} onClose={() => setSheetOpen(false)} onSuccess={load} />
-      </Sheet>
+      </Modal>
 
       <ConfirmDialog
         open={!!confirm}
