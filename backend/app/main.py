@@ -7,6 +7,8 @@ from app.routers import llm_config
 from app.routers import tool
 from app.routers import agent
 from app.routers import dashboard
+from app.routers import domain
+from app.routers import task
 
 # =========================================================
 # App Factory
@@ -57,6 +59,20 @@ def create_app() -> FastAPI:
         dashboard.router,
         prefix="/api/v1/dashboard",
         tags=["Dashboard"],
+    )
+
+    #Register routers for Domains
+    app.include_router(
+        domain.router,
+        prefix="/api/v1/domains",
+        tags=["Domains"],
+    )
+
+    #Register routers for Tasks
+    app.include_router(
+        task.router,
+        prefix="/api/v1/tasks",
+        tags=["Tasks"],
     )
     
     return app

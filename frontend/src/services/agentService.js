@@ -15,6 +15,7 @@ export const agentService = {
     if (data.system_prompt) formData.append('system_prompt', data.system_prompt);
     if (data.llm_config_id) formData.append('llm_config_id', data.llm_config_id);
     if (data.parent_agent_id) formData.append('parent_agent_id', data.parent_agent_id);
+    if (data.domain_id) formData.append('domain_id', data.domain_id);
     formData.append('is_active', 'true');
     
     // Add tool_ids as array
@@ -43,4 +44,10 @@ export const agentService = {
   
   // Dry run agent
   dryRun: (id, prompt) => apiClient.post(`/agents/${id}/dry-run`, { prompt }),
+  
+  // Suggest domain for new agent (LLM-based)
+  suggestDomain: (data) => apiClient.post('/agents/suggest-domain', data),
+
+  // Delete agent
+  delete: (id) => apiClient.delete(`/agents/${id}/`),
 };

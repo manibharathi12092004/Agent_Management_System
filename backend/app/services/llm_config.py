@@ -132,8 +132,52 @@ class LLMConfigService:
             raise NotFoundError(f"LLM config {config_id} not found")
 
     # ------------------------------------------------------------------
-    # DEFAULT MANAGEMENT
+    # TEST CONNECTION
     # ------------------------------------------------------------------
+
+    async def test_connection(self, config_id: UUID) -> dict:
+        """Send a minimal ping to the LLM provider to verify the config works."""
+        from app.core.security import decrypt_api_key
+
+        config = await self.repo.get(config_id)
+        if not config:
+            raise NotFoundError(f"LLM config {config_id} not found")
+
+        api_key = decrypt_api_key(config.api_key_encrypted)
+        provider = config.provider.lower()
+        model_name = config.model_name
+
+        try:
+            if provider == "gemini":
+                from google import genai
+                client = genai.Client(api_key=api_key)
+                client.models.generate_content(
+                    model=model_name,
+                    contents="Reply with the single word: ok",
+                )
+
+            elif provider in ("openai", "ollama", "anthropic"):
+                import openai
+                base_url = config.base_url or None
+                if provider == "ollama":
+                    # Ensure /v1 suffix — Ollama's OpenAI-compatible endpoint
+                    raw = (base_url or "http://localhost:11434").rstrip("/")
+                    base_url = raw if raw.endswith("/v1") else f"{raw}/v1"
+                    api_key = api_key or "ollama"
+                client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+                await client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "Reply with the single word: ok"}],
+                    max_tokens=5,
+                )
+
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+            return {"status": "success", "message": "Connection successful"}
+
+        except Exception as e:
+            raise ValueError(f"Connection failed: {str(e)}")
 
     async def set_default(self, config_id: UUID) -> LLMConfig:
         config = await self.repo.set_default(config_id)

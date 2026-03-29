@@ -117,3 +117,25 @@ async def set_default_llm_config(
 ):
     service = LLMConfigService(db)
     return await service.set_default(config_id)
+
+
+# ---------------------------------------------------------------------
+# TEST CONNECTION
+# ---------------------------------------------------------------------
+
+@router.post(
+    "/{config_id}/test",
+    summary="Test LLM provider connection",
+)
+async def test_llm_connection(
+    config_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi import HTTPException
+    service = LLMConfigService(db)
+    try:
+        return await service.test_connection(config_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

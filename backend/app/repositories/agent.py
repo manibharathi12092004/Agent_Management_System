@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.agent import Agent
+from app.models.domain import Domain
 from app.repositories.base import BaseRepository
 
 
@@ -48,6 +49,7 @@ class AgentRepository(BaseRepository[Agent]):
                 selectinload(Agent.tools),
                 selectinload(Agent.llm_config),
                 selectinload(Agent.children),
+                selectinload(Agent.domain),
             )
             .order_by(Agent.created_at)
         )
@@ -77,6 +79,7 @@ class AgentRepository(BaseRepository[Agent]):
                 selectinload(Agent.tools),
                 selectinload(Agent.llm_config),
                 selectinload(Agent.children),
+                selectinload(Agent.domain),
             )
             .order_by(Agent.created_at)
         )
@@ -114,6 +117,7 @@ class AgentRepository(BaseRepository[Agent]):
                 selectinload(Agent.tools),
                 selectinload(Agent.llm_config),
                 selectinload(Agent.children),
+                selectinload(Agent.domain),
             )
         )
 
@@ -147,6 +151,7 @@ class AgentRepository(BaseRepository[Agent]):
                 selectinload(Agent.llm_config),
                 selectinload(Agent.children),
                 selectinload(Agent.parent),
+                selectinload(Agent.domain),
             )
         )
 

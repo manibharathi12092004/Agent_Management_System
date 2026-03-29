@@ -112,6 +112,7 @@ class AgentService:
             skill_file_path=skill_file_path,
             llm_config_id=llm_id,
             parent_agent_id=data.parent_agent_id,
+            domain_id=data.domain_id,
             is_active=data.is_active,
         )
 

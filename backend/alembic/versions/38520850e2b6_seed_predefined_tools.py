@@ -53,10 +53,11 @@ def upgrade() -> None:
                 "function_name": "file_system",
                 "default_params": {
                     "actions": [
-                    {"id": "list", "label": "List Files"},
-                    {"id": "read", "label": "Read File"},
-                    {"id": "count", "label": "Count Lines"},
-                    {"id": "write", "label": "Write File"}
+                        {"id": "list_files", "label": "List Files", "description": "List files in a directory"},
+                        {"id": "read_file", "label": "Read File", "description": "Read the contents of a file"},
+                        {"id": "count_lines", "label": "Count Lines", "description": "Count lines in a file"},
+                        {"id": "write_file", "label": "Write File", "description": "Create or overwrite a file"},
+                        {"id": "search_files", "label": "Search Files", "description": "Search for a keyword across all files"}
                     ]
                 },
                 "is_active": True,

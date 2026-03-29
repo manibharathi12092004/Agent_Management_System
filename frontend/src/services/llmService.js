@@ -7,4 +7,5 @@ export const llmService = {
   update: (id, data) => apiClient.put(`/llm-configs/${id}/`, data),
   delete: (id) => apiClient.delete(`/llm-configs/${id}/`),
   setDefault: (id) => apiClient.post(`/llm-configs/${id}/set-default/`),
+  testConnection: (id) => apiClient.post(`/llm-configs/${id}/test/`),
 };

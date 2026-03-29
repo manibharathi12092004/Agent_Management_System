@@ -193,3 +193,155 @@ Execute your assigned role and produce the best possible result.
 
     finally:
         _cleanup_provider_env()
+
+
+# =====================================================================
+# WORKFLOW EXECUTION (SequentialAgent pipeline)
+# =====================================================================
+
+async def run_workflow(
+    steps: list,          # list of TaskWorkflowStep ORM objects sorted by step_order
+    default_llm_config,   # LLMConfig ORM object
+    input_data: dict,
+) -> list:                # list of StepResult dicts
+    """
+    Execute a multi-step workflow using ADK SequentialAgent.
+    Each step becomes an LlmAgent with output_key=f"step_{i}_output".
+    ADK passes state between agents via {variable} template substitution.
+    """
+    from google.adk.agents.sequential_agent import SequentialAgent
+    from time import perf_counter
+
+    adk_agents = []
+
+    for i, step in enumerate(steps, start=1):
+        # Resolve llm_config: step override → agent's config → default
+        llm_config = (
+            step.llm_override
+            or getattr(step.agent, "llm_config", None)
+            or default_llm_config
+        )
+
+        _set_provider_api_key(llm_config)
+        model = _build_model(llm_config)
+        system_prompt = _load_system_prompt(step.agent)
+
+        output_key = f"step_{i}_output"
+
+        if i == 1:
+            instruction = f"{system_prompt}\n\nUser input: {{user_input}}"
+        else:
+            prev_key = f"step_{i - 1}_output"
+            instruction = f"{system_prompt}\n\nPrevious step output:\n{{{prev_key}}}"
+
+        tool_functions = get_tool_functions(
+            [tool.function_name for tool in step.agent.tools]
+        )
+
+        sanitized_name = _sanitize_agent_name(f"{step.agent.name}_step{i}")
+
+        adk_agent = LlmAgent(
+            name=sanitized_name,
+            model=model,
+            instruction=instruction,
+            tools=tool_functions,
+            output_key=output_key,
+        )
+        adk_agents.append(adk_agent)
+
+    sequential = SequentialAgent(
+        name="workflow_pipeline",
+        sub_agents=adk_agents,
+    )
+
+    session_service = InMemorySessionService()
+    runner = Runner(
+        agent=sequential,
+        app_name="ai_workflow",
+        session_service=session_service,
+    )
+
+    session_id = "workflow_run"
+    user_id = "workflow_user"
+
+    session = await session_service.create_session(
+        app_name="ai_workflow",
+        user_id=user_id,
+        session_id=session_id,
+    )
+
+    # Inject initial input into session state
+    session.state["user_input"] = json.dumps(input_data)
+
+    t0 = perf_counter()
+    pipeline_error: str | None = None
+
+    try:
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=json.dumps(input_data))],
+            ),
+        ):
+            pass  # SequentialAgent manages sub-agent execution internally
+    except Exception as exc:
+        pipeline_error = str(exc)
+
+    # Retrieve final session state
+    final_session = await session_service.get_session(
+        app_name="ai_workflow",
+        user_id=user_id,
+        session_id=session_id,
+    )
+    state = final_session.state if final_session else {}
+
+    total_elapsed = perf_counter() - t0
+    per_step_ms = int((total_elapsed * 1000) / len(steps)) if steps else 0
+
+    results = []
+    failed_at: int | None = None  # step index (1-based) where failure occurred
+
+    for i, step in enumerate(steps, start=1):
+        output_key = f"step_{i}_output"
+        output = state.get(output_key, "")
+
+        if failed_at is not None:
+            # Steps after the failure were never executed — mark as skipped
+            results.append({
+                "step_order": step.step_order,
+                "agent_id": str(step.agent_id),
+                "agent_name": step.agent.name,
+                "output": "",
+                "duration_ms": 0,
+                "error": None,
+                "skipped": True,
+            })
+            continue
+
+        if not output and pipeline_error:
+            # This step failed — record error and stop processing further steps
+            failed_at = i
+            results.append({
+                "step_order": step.step_order,
+                "agent_id": str(step.agent_id),
+                "agent_name": step.agent.name,
+                "output": "",
+                "duration_ms": per_step_ms,
+                "error": pipeline_error,
+                "skipped": False,
+            })
+        else:
+            results.append({
+                "step_order": step.step_order,
+                "agent_id": str(step.agent_id),
+                "agent_name": step.agent.name,
+                "output": output,
+                "duration_ms": per_step_ms,
+                "error": None,
+                "skipped": False,
+            })
+
+    _cleanup_provider_env()
+    return results

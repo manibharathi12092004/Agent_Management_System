@@ -63,3 +63,27 @@ class ToolService:
         await self.db.commit()
 
         return [agent.id for agent in agents]
+
+    # -----------------------------------------------------
+    # UNASSIGN TOOL FROM AGENTS
+    # -----------------------------------------------------
+
+    async def unassign_tool_from_agents(
+        self,
+        tool_id: UUID,
+        agent_ids: list[UUID]
+    ) -> list[UUID]:
+
+        tool = await self.tool_repo.get(tool_id)
+        if not tool:
+            raise NotFoundError(f"Tool {tool_id} not found")
+
+        agents = await self.agent_repo.get_by_ids(agent_ids)
+
+        for agent in agents:
+            if tool in agent.tools:
+                agent.tools.remove(tool)
+
+        await self.db.commit()
+
+        return [agent.id for agent in agents]

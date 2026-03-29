@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 # =========================================================
@@ -51,6 +51,11 @@ class AgentCreate(BaseModel):
         description="Tools assigned to this agent"
     )
 
+    domain_id: Optional[UUID] = Field(
+        None,
+        description="Domain this agent belongs to (auto-assigned via LLM)"
+    )
+
     is_active: bool = True
 
 
@@ -88,6 +93,9 @@ class AgentBaseResponse(BaseModel):
 
     llm_config_id: Optional[UUID]
     parent_agent_id: Optional[UUID]
+    
+    domain_id: Optional[UUID] = None
+    domain_name: Optional[str] = None
 
     tools: List[ToolNestedResponse] = []
 
@@ -97,6 +105,14 @@ class AgentBaseResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_domain_name(cls, values):
+        # When loading from ORM object, pull domain.name into domain_name
+        if hasattr(values, "domain") and values.domain is not None:
+            values.__dict__["domain_name"] = values.domain.name
+        return values
 
 
 # =========================================================

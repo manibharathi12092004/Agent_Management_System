@@ -52,13 +52,21 @@ async def assign_tool_to_agents(
     db: AsyncSession = Depends(get_db)
 ):
     service = ToolService(db)
+    assigned_ids = await service.assign_tool_to_agents(tool_id, body.agent_ids)
+    return AssignToolToAgentsResponse(tool_id=tool_id, assigned_agent_ids=assigned_ids)
 
-    assigned_ids = await service.assign_tool_to_agents(
-        tool_id,
-        body.agent_ids
-    )
 
-    return AssignToolToAgentsResponse(
-        tool_id=tool_id,
-        assigned_agent_ids=assigned_ids
-    )
+# ---------------------------------------------------------
+# UNASSIGN TOOL FROM AGENTS
+# ---------------------------------------------------------
+
+@router.post("/{tool_id}/unassign-agents",
+             response_model=AssignToolToAgentsResponse)
+async def unassign_tool_from_agents(
+    tool_id: UUID,
+    body: AssignToolToAgentsRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    service = ToolService(db)
+    unassigned_ids = await service.unassign_tool_from_agents(tool_id, body.agent_ids)
+    return AssignToolToAgentsResponse(tool_id=tool_id, assigned_agent_ids=unassigned_ids)

@@ -40,6 +40,12 @@ class Agent(Base, UUIDMixin, TimestampMixin):
         ForeignKey("agents.id")
     )
 
+    # Domain assignment (for grouping agents)
+    domain_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("domains.id", ondelete="SET NULL")
+    )
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
@@ -62,3 +68,6 @@ class Agent(Base, UUIDMixin, TimestampMixin):
         back_populates="children",
         remote_side="Agent.id"
     )
+
+    # Domain relationship
+    domain = relationship("Domain", back_populates="agents", lazy="selectin")

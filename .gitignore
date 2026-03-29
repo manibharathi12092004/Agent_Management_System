@@ -4,18 +4,26 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
+*.pyo
+*.pyd
 
 # Virtual environments
 venv/
+env/
 .env/
 .env.*
 .venv/
+ENV/
+env.bak/
+venv.bak/
 
 # =========================
 # Environment variables
 # =========================
 .env
 *.env
+!.env.example
 
 # =========================
 # IDE / Editor
@@ -24,17 +32,29 @@ venv/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
+.kiro/
 
 # =========================
 # OS files
 # =========================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # =========================
 # Logs
 # =========================
 *.log
+logs/
+backend/logs/
+*.log.*
 
 # =========================
 # Build / Distribution
@@ -42,11 +62,15 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+*.egg
+.eggs/
 
 # =========================
 # Database local files
 # =========================
 *.sqlite3
+*.db
+*.sqlite
 
 # =========================
 # Alembic
@@ -58,14 +82,68 @@ alembic/versions/__pycache__/
 # =========================
 .pytest_cache/
 .coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # =========================
-# Node (if frontend later)
+# Backend specific
+# =========================
+backend/venv/
+backend/logs/
+backend/uploads/
+backend/test.py
+backend/*.db
+
+# =========================
+# Frontend / Node
 # =========================
 node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend build
+frontend/dist/
+frontend/dist-ssr/
+frontend/build/
+*.local
+
+# Frontend test files
+frontend/test-app.html
+frontend/coverage/
 
 # =========================
 # Secrets / keys
 # =========================
 *.pem
 *.key
+*.cert
+*.crt
+id_rsa
+id_rsa.pub
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# =========================
+# Documentation (optional)
+# =========================
+# Uncomment if you don't want to track these
+# TESTING_GUIDE.md
+# INTEGRATION_SUCCESS.md

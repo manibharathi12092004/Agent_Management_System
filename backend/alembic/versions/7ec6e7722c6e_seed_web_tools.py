@@ -57,7 +57,7 @@ def upgrade() -> None:
                 "function_name": "web_tool",
                 "default_params": {
                     "actions": [
-                        {"id": "search", "label": "Web Search"}
+                        {"id": "search", "label": "Web Search", "description": "Search the web for real-time information"}
                     ]
                 },
                 "is_active": True,

@@ -1,181 +1,157 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import PageWrapper from '../../components/layout/PageWrapper';
-import { agentService } from '../../services/agentService';
-import DryRunModal from './components/DryRunModal';
+import DomainSidebarList from './components/DomainSidebarList';
+import DomainCard from './components/DomainCard';
 import AgentForm from './components/AgentForm';
-import { Plus, Bot, Play, FileText, Edit } from 'lucide-react';
+import DryRunModal from './components/DryRunModal';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import { toast } from '../../components/ui/Toast';
+import { domainService } from '../../services/domainService';
+import { agentService } from '../../services/agentService';
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState([]);
+  const [domains, setDomains] = useState([]);
+  const [selectedDomainId, setSelectedDomainId] = useState(null);
+  const [selectedDomain, setSelectedDomain] = useState(null);
+  const [domainAgents, setDomainAgents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAgent, setSelectedAgent] = useState(null);
-  const [showDryRun, setShowDryRun] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
+  const [createDomainId, setCreateDomainId] = useState(null);
+  const [dryRunAgent, setDryRunAgent] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [highlightedDomainId, setHighlightedDomainId] = useState(null);
+
+  useEffect(() => { loadDomains(); }, []);
 
   useEffect(() => {
-    loadAgents();
-  }, []);
+    if (selectedDomainId) loadDomainAgents(selectedDomainId);
+  }, [selectedDomainId]);
 
-  const loadAgents = async () => {
+  const loadDomains = async () => {
     try {
-      const { data } = await agentService.getAll();
-      setAgents(data);
-    } catch (error) {
-      console.error('Failed to load agents:', error);
-    } finally {
-      setLoading(false);
+      setLoading(true);
+      const { data } = await domainService.getAll();
+      const withAgents = await Promise.all(
+        data.map(async (d) => {
+          try {
+            const { data: agents } = await domainService.getDomainAgents(d.id);
+            return { ...d, agents };
+          } catch { return { ...d, agents: [] }; }
+        })
+      );
+      setDomains(withAgents);
+    } catch { toast.error('Failed to load domains'); }
+    finally { setLoading(false); }
+  };
+
+  const loadDomainAgents = async (domainId) => {
+    try {
+      setAgentsLoading(true);
+      const [{ data: domain }, { data: agents }] = await Promise.all([
+        domainService.getById(domainId),
+        domainService.getDomainAgents(domainId),
+      ]);
+      setSelectedDomain(domain);
+      setDomainAgents(agents);
+    } catch { toast.error('Failed to load agents'); }
+    finally { setAgentsLoading(false); }
+  };
+
+  const openCreate = (domainId) => { setEditingAgent(null); setSheetOpen(true); setCreateDomainId(domainId || null); };
+  const openEdit = (agent) => { setEditingAgent(agent); setSheetOpen(true); };
+
+  const handleFormSuccess = async (result) => {
+    const targetDomainId = result?.domainId || null;
+
+    await loadDomains();
+
+    if (result?.isNewDomain && targetDomainId) {
+      setHighlightedDomainId(targetDomainId);
+      setTimeout(() => setHighlightedDomainId(null), 2500);
+    }
+
+    // Always navigate to the domain the agent was placed in
+    if (targetDomainId) {
+      setSelectedDomainId(targetDomainId);
+      loadDomainAgents(targetDomainId);
+    } else if (selectedDomainId) {
+      loadDomainAgents(selectedDomainId);
     }
   };
 
-  const handleDryRun = (agent) => {
-    setSelectedAgent(agent);
-    setShowDryRun(true);
+  const handleDeleteConfirm = async () => {
+    try {
+      await agentService.delete(deleteTarget.id);
+      toast.success(`Agent "${deleteTarget.name}" deleted`);
+      await loadDomains();
+      if (selectedDomainId) loadDomainAgents(selectedDomainId);
+    } catch { toast.error('Failed to delete agent'); }
+    finally { setDeleteTarget(null); }
   };
-
-  const handleCreate = () => {
-    setEditingAgent(null);
-    setShowForm(true);
-  };
-
-  const handleEdit = (agent) => {
-    setEditingAgent(agent);
-    setShowForm(true);
-  };
-
-  const handleFormSuccess = () => {
-    loadAgents();
-    setShowForm(false);
-    setEditingAgent(null);
-  };
-
-  if (loading) {
-    return (
-      <PageWrapper title="Agent Management" subtitle="Create and manage AI agents">
-        <div className="flex items-center justify-center h-full">
-          <div className="text-gray-400">Loading...</div>
-        </div>
-      </PageWrapper>
-    );
-  }
 
   return (
     <>
-      <PageWrapper
-        title="Agent Management"
-        subtitle="Create and manage AI agents with skills and tools"
-        actions={
-          <button
-            onClick={handleCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo text-white rounded-lg hover:bg-indigo-600 transition-colors"
-          >
-            <Plus size={18} strokeWidth={1.5} />
-            Create Agent
-          </button>
-        }
-      >
-        <div className="p-8">
-          {agents.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-              <Bot size={48} className="mx-auto mb-4 text-gray-300" strokeWidth={1} />
-              <p className="text-gray-400 mb-4">No agents created yet</p>
-              <button
-                onClick={handleCreate}
-                className="px-4 py-2 bg-indigo text-white rounded-lg hover:bg-indigo-600 transition-colors"
-              >
-                Create Your First Agent
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-6">
-              {agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all"
-                >
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="p-3 bg-indigo-50 rounded-lg">
-                      <Bot size={24} className="text-indigo" strokeWidth={1.5} />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-                      {agent.description && (
-                        <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                          {agent.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+      <div className="flex h-full overflow-hidden">
+        {/* Domain sidebar */}
+        <DomainSidebarList
+          domains={domains}
+          selectedDomainId={selectedDomainId}
+          onDomainSelect={setSelectedDomainId}
+          onAgentSelect={openEdit}
+          onCreateAgent={openCreate}
+          highlightedDomainId={highlightedDomainId}
+        />
 
-                  <div className="space-y-2 mb-4">
-                    {agent.skill_file_path && (
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <FileText size={14} />
-                        <span>Skill file attached</span>
-                      </div>
-                    )}
-                    {agent.system_prompt && (
-                      <div className="text-xs text-gray-500">
-                        💬 System prompt configured
-                      </div>
-                    )}
-                    {agent.tools && agent.tools.length > 0 && (
-                      <div className="text-xs text-gray-500">
-                        🔧 {agent.tools.length} tool{agent.tools.length > 1 ? 's' : ''} assigned
-                      </div>
-                    )}
-                    {agent.llm_config_id && (
-                      <div className="text-xs text-gray-500">
-                        ⚙️ Custom LLM configured
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
-                    <button
-                      onClick={() => handleDryRun(agent)}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm text-gray-700 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-                    >
-                      <Play size={14} strokeWidth={1.5} />
-                      Dry Run
-                    </button>
-                    <button
-                      onClick={() => handleEdit(agent)}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm text-indigo border border-indigo rounded hover:bg-indigo-50 transition-colors"
-                    >
-                      <Edit size={14} strokeWidth={1.5} />
-                      Edit
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Main content */}
+        <div className="flex-1 overflow-hidden bg-surface">
+          {/* Top bar */}
+          <div className="h-14 bg-white border-b border-gray-100 flex items-center px-6">
+            <h1 className="text-[17px] font-semibold text-gray-900">Agent Management</h1>
+            <p className="text-xs text-gray-400 ml-3">Domain-organized AI agents</p>
+          </div>
+          <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100% - 56px)' }}>
+            <DomainCard
+              domain={selectedDomain}
+              agents={domainAgents}
+              loading={agentsLoading}
+              onEditAgent={openEdit}
+              onDeleteAgent={setDeleteTarget}
+              onDryRunAgent={setDryRunAgent}
+              onCreateAgent={openCreate}
+            />
+          </div>
         </div>
-      </PageWrapper>
+      </div>
 
-      {/* Dry Run Modal */}
-      {showDryRun && selectedAgent && (
+      {/* Agent form sheet */}
+      <AgentForm
+        open={sheetOpen}
+        agent={editingAgent}
+        preselectedDomainId={createDomainId}
+        preselectedDomainName={createDomainId ? domains.find(d => d.id === createDomainId)?.name : null}
+        onClose={() => { setSheetOpen(false); setEditingAgent(null); setCreateDomainId(null); }}
+        onSuccess={handleFormSuccess}
+      />
+
+      {/* Dry run modal */}
+      {dryRunAgent && (
         <DryRunModal
-          agent={selectedAgent}
-          onClose={() => {
-            setShowDryRun(false);
-            setSelectedAgent(null);
-          }}
+          agent={dryRunAgent}
+          onClose={() => setDryRunAgent(null)}
         />
       )}
 
-      {/* Agent Form Modal */}
-      {showForm && (
-        <AgentForm
-          agent={editingAgent}
-          onClose={() => {
-            setShowForm(false);
-            setEditingAgent(null);
-          }}
-          onSuccess={handleFormSuccess}
-        />
-      )}
+      {/* Delete confirm */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete Agent"
+        message={`Delete "${deleteTarget?.name}"? This cannot be undone.`}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </>
   );
 }

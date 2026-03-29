@@ -1,54 +1,73 @@
-import { formatDate } from '../../../utils/dateFormatter';
-import { getStatusColor } from '../../../utils/statusColors';
+import { formatDate, formatDuration } from '../../../utils/dateFormatter';
+import { Clock, ExternalLink } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+function StatusBadge({ status }) {
+  const map = {
+    COMPLETED:   { dot: 'status-dot-green',  cls: 'badge-green',  label: 'Completed' },
+    IN_PROGRESS: { dot: 'status-dot-amber',  cls: 'badge-amber',  label: 'In Progress' },
+    FAILED:      { dot: 'status-dot-red',    cls: 'badge-red',    label: 'Failed' },
+    NOT_STARTED: { dot: 'status-dot-gray',   cls: 'badge-gray',   label: 'Not Started' },
+  };
+  const s = map[status?.toUpperCase()] || map.NOT_STARTED;
+  return (
+    <span className={`badge ${s.cls}`}>
+      <span className={`status-dot ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
 
 export default function RecentRunsTable({ runs }) {
+  const navigate = useNavigate();
+
   if (!runs || runs.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-        <p className="text-gray-400">No recent task runs</p>
+      <div className="card flex flex-col items-center justify-center py-16 text-center">
+        <Clock size={40} className="text-gray-200 mb-3" strokeWidth={1.5} />
+        <p className="text-sm font-medium text-gray-500">No recent task runs</p>
+        <p className="text-xs text-gray-400 mt-1">Runs will appear here once tasks are executed</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900">Recent Task Runs</h2>
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <h2 className="text-sm font-semibold text-gray-900">Recent Task Runs</h2>
+        <button
+          onClick={() => navigate('/run-history')}
+          className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-600 font-medium transition-colors"
+        >
+          View all <ExternalLink size={12} strokeWidth={2} />
+        </button>
       </div>
-      
       <table className="w-full">
-        <thead className="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Scheduler
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Task
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Run At
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Status
-            </th>
+        <thead>
+          <tr className="bg-gray-50/60 border-b border-gray-100">
+            {['Scheduler', 'Task', 'Run At', 'Duration', 'Status'].map((h) => (
+              <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
-          {runs.map((run) => (
-            <tr key={run.id} className="hover:bg-gray-50 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-900">
-                {run.schedule?.name || 'Manual'}
+        <tbody>
+          {runs.map((run, i) => (
+            <tr
+              key={run.id}
+              className={`border-b border-gray-50 hover:bg-gray-50/60 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}
+            >
+              <td className="px-6 py-3.5 text-sm text-gray-700 font-medium">
+                {run.schedule?.name || <span className="text-gray-400 italic">Manual</span>}
               </td>
-              <td className="px-6 py-4 text-sm text-gray-900">
-                {run.task?.name || '-'}
+              <td className="px-6 py-3.5 text-sm text-gray-700">{run.task?.name || '—'}</td>
+              <td className="px-6 py-3.5 text-sm text-gray-500">{formatDate(run.started_at)}</td>
+              <td className="px-6 py-3.5 text-sm text-gray-500">
+                {formatDuration(run.started_at, run.completed_at)}
               </td>
-              <td className="px-6 py-4 text-sm text-gray-500">
-                {formatDate(run.started_at)}
-              </td>
-              <td className="px-6 py-4">
-                <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(run.status)}`}>
-                  {run.status}
-                </span>
+              <td className="px-6 py-3.5">
+                <StatusBadge status={run.status} />
               </td>
             </tr>
           ))}

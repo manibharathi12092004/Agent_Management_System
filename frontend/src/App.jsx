@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
+import { ToastContainer } from './components/ui/Toast';
 import DashboardPage from './modules/dashboard/DashboardPage';
 import LLMSettingsPage from './modules/llm-settings/LLMSettingsPage';
 import ToolsPage from './modules/tools/ToolsPage';
@@ -10,17 +11,20 @@ import RunHistoryPage from './modules/run-history/RunHistoryPage';
 
 function App() {
   return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/llm-settings" element={<LLMSettingsPage />} />
-        <Route path="/tools" element={<ToolsPage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/tasks" element={<TasksPage />} />
-        <Route path="/scheduler" element={<SchedulerPage />} />
-        <Route path="/run-history" element={<RunHistoryPage />} />
-      </Routes>
-    </AppShell>
+    <>
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/llm-settings" element={<LLMSettingsPage />} />
+          <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/scheduler" element={<SchedulerPage />} />
+          <Route path="/run-history" element={<RunHistoryPage />} />
+        </Routes>
+      </AppShell>
+      <ToastContainer />
+    </>
   );
 }
 
