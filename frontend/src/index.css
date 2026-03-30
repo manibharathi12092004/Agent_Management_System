@@ -105,6 +105,7 @@
     @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
   .badge-indigo  { @apply badge bg-indigo-50 text-indigo-700; }
+  .badge-blue    { @apply badge bg-blue-50 text-blue-700; }
   .badge-green   { @apply badge bg-emerald-50 text-emerald-700; }
   .badge-amber   { @apply badge bg-amber-50 text-amber-700; }
   .badge-red     { @apply badge bg-red-50 text-red-700; }

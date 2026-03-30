@@ -101,6 +101,20 @@ backend/uploads/
 backend/test.py
 backend/*.db
 
+# Celery beat persistent schedule files
+backend/celerybeat-schedule.bak
+backend/celerybeat-schedule.dat
+backend/celerybeat-schedule.dir
+celerybeat-schedule.bak
+celerybeat-schedule.dat
+celerybeat-schedule.dir
+celerybeat.pid
+
+# =========================
+# Project specific
+# =========================
+file_writer_agent.md
+
 # =========================
 # Frontend / Node
 # =========================

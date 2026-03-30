@@ -231,7 +231,7 @@ export default function TasksPage() {
               <Zap size={12} className="text-white" strokeWidth={2.5} />
             </div>
             <div className="w-px h-5 bg-gray-200" />
-            <span className="text-sm font-semibold text-gray-700 truncate max-w-[180px]">
+            <span className="text-sm font-semibold text-gray-700">
               {selectedTask?.name || 'Select a task'}
             </span>
             <div className="w-px h-5 bg-gray-200" />

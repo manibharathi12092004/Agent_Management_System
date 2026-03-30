@@ -42,6 +42,14 @@ class TaskRepository(BaseRepository[Task]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_by_ids(self, task_ids: list[UUID]) -> list[Task]:
+        """Bulk fetch tasks by IDs."""
+        if not task_ids:
+            return []
+        stmt = select(Task).where(Task.id.in_(task_ids))
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def replace_steps(self, task: Task, new_steps: list[TaskWorkflowStep]) -> Task:
         """Delete all existing steps and insert new ones atomically (no intermediate commit)."""
         await self.db.execute(

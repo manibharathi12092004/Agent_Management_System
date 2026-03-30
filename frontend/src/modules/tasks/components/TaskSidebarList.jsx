@@ -61,7 +61,7 @@ export default function TaskSidebarList({ onNew, onSelect, onEdit, selectedId, r
                 onClick={() => onSelect(task)}
               >
                 {/* Task name */}
-                <span className={`text-sm truncate flex-1 ${
+                <span className={`text-sm flex-1 break-words ${
                   isSelected ? 'text-indigo-700 font-semibold' : 'text-gray-700'
                 }`}>
                   {task.name}

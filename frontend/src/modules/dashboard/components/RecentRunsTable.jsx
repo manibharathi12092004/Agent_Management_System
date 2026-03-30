@@ -1,12 +1,14 @@
 import { formatDate, formatDuration } from '../../../utils/dateFormatter';
-import { Clock, ExternalLink } from 'lucide-react';
+import { Clock, ExternalLink, Calendar, FolderOpen, Mail, Play, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 function StatusBadge({ status }) {
   const map = {
     COMPLETED:   { dot: 'status-dot-green',  cls: 'badge-green',  label: 'Completed' },
+    RUNNING:     { dot: 'status-dot-amber',  cls: 'badge-amber',  label: 'Running' },
     IN_PROGRESS: { dot: 'status-dot-amber',  cls: 'badge-amber',  label: 'In Progress' },
     FAILED:      { dot: 'status-dot-red',    cls: 'badge-red',    label: 'Failed' },
+    PENDING:     { dot: 'status-dot-gray',   cls: 'badge-gray',   label: 'Pending' },
     NOT_STARTED: { dot: 'status-dot-gray',   cls: 'badge-gray',   label: 'Not Started' },
   };
   const s = map[status?.toUpperCase()] || map.NOT_STARTED;
@@ -16,6 +18,18 @@ function StatusBadge({ status }) {
       {s.label}
     </span>
   );
+}
+
+function TriggerBadge({ type }) {
+  const map = {
+    cron:         { cls: 'badge-indigo', label: 'Cron' },
+    manual:       { cls: 'badge-gray',   label: 'Manual' },
+    folder_watch: { cls: 'badge-amber',  label: 'Folder Watch' },
+    file_watch:   { cls: 'badge-amber',  label: 'File Watch' },
+    email:        { cls: 'badge-blue',   label: 'Email' },
+  };
+  const t = map[type] || { cls: 'badge-gray', label: type || 'Manual' };
+  return <span className={`badge ${t.cls}`}>{t.label}</span>;
 }
 
 export default function RecentRunsTable({ runs }) {
@@ -45,7 +59,7 @@ export default function RecentRunsTable({ runs }) {
       <table className="w-full">
         <thead>
           <tr className="bg-gray-50/60 border-b border-gray-100">
-            {['Scheduler', 'Task', 'Run At', 'Duration', 'Status'].map((h) => (
+            {['Scheduler', 'Task', 'Trigger', 'Run At', 'Duration', 'Status'].map((h) => (
               <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 {h}
               </th>
@@ -62,6 +76,7 @@ export default function RecentRunsTable({ runs }) {
                 {run.schedule?.name || <span className="text-gray-400 italic">Manual</span>}
               </td>
               <td className="px-6 py-3.5 text-sm text-gray-700">{run.task?.name || '—'}</td>
+              <td className="px-6 py-3.5"><TriggerBadge type={run.trigger_type} /></td>
               <td className="px-6 py-3.5 text-sm text-gray-500">{formatDate(run.started_at)}</td>
               <td className="px-6 py-3.5 text-sm text-gray-500">
                 {formatDuration(run.started_at, run.completed_at)}

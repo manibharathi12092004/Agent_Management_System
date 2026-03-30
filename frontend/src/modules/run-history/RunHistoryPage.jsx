@@ -1,24 +1,29 @@
 import { useState, useEffect, useRef } from 'react';
 import PageWrapper from '../../components/layout/PageWrapper';
-import Sheet from '../../components/ui/Sheet';
+import Modal from '../../components/ui/Modal';
 import { SkeletonRow } from '../../components/ui/Skeleton';
-import { formatDate, formatDuration } from '../../utils/dateFormatter';
-import { FileText, RefreshCw, Radio } from 'lucide-react';
-
-const MOCK_RUNS = [
-  { id: '1', schedule: { name: 'Daily Report' },   task: { name: 'Sales Analysis' },    started_at: new Date(Date.now() - 3600000).toISOString(), completed_at: new Date(Date.now() - 3540000).toISOString(), status: 'COMPLETED',   log_output: '[INFO] Starting Sales Analysis workflow\n[INFO] Agent: Research Agent initialized\n[INFO] Fetching sales data...\n[SUCCESS] Data fetched: 1,234 records\n[INFO] Running analysis...\n[SUCCESS] Analysis complete\n[INFO] Generating report...\n[SUCCESS] Report saved to /output/sales_report.pdf' },
-  { id: '2', schedule: { name: 'Weekly Digest' },  task: { name: 'Content Summary' },   started_at: new Date(Date.now() - 7200000).toISOString(), completed_at: null,                                              status: 'IN_PROGRESS', log_output: '[INFO] Starting Content Summary workflow\n[INFO] Fetching articles...\n[INFO] Processing 45 articles...' },
-  { id: '3', schedule: null,                        task: { name: 'Data Pipeline' },     started_at: new Date(Date.now() - 86400000).toISOString(), completed_at: new Date(Date.now() - 86340000).toISOString(), status: 'FAILED',      log_output: '[INFO] Starting Data Pipeline\n[INFO] Connecting to database...\n[ERROR] Connection timeout after 30s\n[ERROR] Failed to connect to PostgreSQL\n[FATAL] Workflow aborted' },
-  { id: '4', schedule: { name: 'Daily Report' },   task: { name: 'Email Processor' },   started_at: new Date(Date.now() - 172800000).toISOString(), completed_at: new Date(Date.now() - 172740000).toISOString(), status: 'COMPLETED',  log_output: '[INFO] Email processor started\n[INFO] Found 12 new emails\n[SUCCESS] Processed all emails' },
-  { id: '5', schedule: null,                        task: { name: 'Market Research' },   started_at: null,                                            completed_at: null,                                              status: 'NOT_STARTED', log_output: '' },
-];
+import { formatDate } from '../../utils/dateFormatter';
+import { FileText, RefreshCw, Radio, Clock, XCircle, Calendar, FolderOpen, Mail, Play } from 'lucide-react';
+import apiClient from '../../services/api';
 
 const STATUS_MAP = {
   COMPLETED:   { dot: 'status-dot-green',  badge: 'badge-green',  label: 'Completed' },
+  COMPLETED_WITH_ERRORS: { dot: 'status-dot-amber', badge: 'badge-amber', label: 'Partial' },
   IN_PROGRESS: { dot: 'status-dot-amber',  badge: 'badge-amber',  label: 'In Progress' },
+  RUNNING:     { dot: 'status-dot-amber',  badge: 'badge-amber',  label: 'Running' },
   FAILED:      { dot: 'status-dot-red',    badge: 'badge-red',    label: 'Failed' },
+  PENDING:     { dot: 'status-dot-gray',   badge: 'badge-gray',   label: 'Pending' },
   NOT_STARTED: { dot: 'status-dot-gray',   badge: 'badge-gray',   label: 'Not Started' },
 };
+
+const TRIGGER_TABS = [
+  { key: 'all',          label: 'All',          icon: Radio },
+  { key: 'cron',         label: 'Cron',         icon: Calendar },
+  { key: 'manual',       label: 'Manual',       icon: Play },
+  { key: 'folder_watch', label: 'Folder Watch', icon: FolderOpen },
+  { key: 'file_watch',   label: 'File Watch',   icon: FileText },
+  { key: 'email',        label: 'Email',        icon: Mail },
+];
 
 function StatusBadge({ status }) {
   const s = STATUS_MAP[status?.toUpperCase()] || STATUS_MAP.NOT_STARTED;
@@ -30,30 +35,93 @@ function StatusBadge({ status }) {
   );
 }
 
+function TriggerBadge({ type }) {
+  const map = {
+    cron:         { cls: 'badge-indigo', label: 'Cron' },
+    manual:       { cls: 'badge-gray',   label: 'Manual' },
+    folder_watch: { cls: 'badge-amber',  label: 'Folder Watch' },
+    file_watch:   { cls: 'badge-amber',  label: 'File Watch' },
+    email:        { cls: 'badge-blue',   label: 'Email' },
+  };
+  const t = map[type] || { cls: 'badge-gray', label: type || 'Manual' };
+  return <span className={`badge ${t.cls}`}>{t.label}</span>;
+}
+
+function fmtDuration(seconds) {
+  if (!seconds && seconds !== 0) return '—';
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}m ${s}s`;
+}
+
 function colorLine(line) {
-  if (line.startsWith('[ERROR]') || line.startsWith('[FATAL]'))
+  const t = line.trim();
+  if (t.startsWith('[FAIL]') || t.startsWith('[ERROR]') || t.startsWith('[FATAL]'))
     return <span className="text-red-400">{line}</span>;
-  if (line.startsWith('[SUCCESS]'))
+  if (t.startsWith('[OK]') || t.startsWith('[SUCCESS]'))
     return <span className="text-emerald-400">{line}</span>;
-  if (line.startsWith('[INFO]'))
-    return <span className="text-blue-300">{line}</span>;
-  if (line.startsWith('[WARN]'))
+  if (t.startsWith('[SKIP]'))
+    return <span className="text-gray-500">{line}</span>;
+  if (t.startsWith('[PARTIAL]'))
     return <span className="text-amber-400">{line}</span>;
+  if (t.startsWith('WORKFLOW:') || t.startsWith('STEPS:'))
+    return <span className="text-indigo-300 font-semibold">{line}</span>;
+  if (t.startsWith('─'))
+    return <span className="text-gray-700">{line}</span>;
+  if (t.startsWith('        Output:'))
+    return <span className="text-gray-400 italic">{line}</span>;
+  if (t.startsWith('        Error:'))
+    return <span className="text-red-400 italic">{line}</span>;
+  if (t.startsWith('['))
+    return <span className="text-blue-300">{line}</span>;
   return <span className="text-gray-300">{line}</span>;
 }
 
-function LogViewer({ log }) {
-  const lines = (log || '').split('\n').filter(Boolean);
+function LogViewer({ run }) {
+  const log = run?.log_output || '';
+  const error = run?.error_message || '';
+  const lines = log.split('\n').filter(Boolean);
+
   return (
-    <div className="bg-gray-950 rounded-xl p-4 font-mono text-xs leading-relaxed overflow-y-auto h-full min-h-[400px]">
-      {lines.length === 0 ? (
-        <span className="text-gray-600">No log output available</span>
-      ) : lines.map((line, i) => (
-        <div key={i} className="flex gap-3">
-          <span className="text-gray-600 select-none w-6 text-right flex-shrink-0">{i + 1}</span>
-          <span>{colorLine(line)}</span>
+    <div className="space-y-4">
+      <div className="flex items-center gap-4 flex-wrap">
+        <StatusBadge status={run?.status} />
+        {run?.trigger_type && <TriggerBadge type={run.trigger_type} />}
+        {run?.duration_seconds != null && (
+          <span className="flex items-center gap-1.5 text-xs text-gray-500">
+            <Clock size={12} strokeWidth={2} />
+            {fmtDuration(run.duration_seconds)}
+          </span>
+        )}
+        {run?.started_at && (
+          <span className="text-xs text-gray-400">{formatDate(run.started_at)}</span>
+        )}
+      </div>
+
+      {error && run?.status?.toUpperCase() === 'FAILED' && (
+        <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+          <XCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={2} />
+          <p className="text-sm text-red-700">{error}</p>
         </div>
-      ))}
+      )}
+
+      <div className="bg-gray-950 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+          <span className="text-xs text-gray-500 font-mono">execution log</span>
+          <span className="text-xs text-gray-600">{lines.length} lines</span>
+        </div>
+        <div className="p-4 font-mono text-xs leading-relaxed overflow-y-auto max-h-[55vh]">
+          {lines.length === 0 ? (
+            <span className="text-gray-600">No log output available</span>
+          ) : lines.map((line, i) => (
+            <div key={i} className="flex gap-3 hover:bg-white/5 px-1 rounded">
+              <span className="text-gray-700 select-none w-7 text-right flex-shrink-0 pt-0.5">{i + 1}</span>
+              <span className="flex-1 break-all">{colorLine(line)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -62,17 +130,16 @@ export default function RunHistoryPage() {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [logRun, setLogRun] = useState(null);
+  const [activeTab, setActiveTab] = useState('all');
   const [autoRefresh, setAutoRefresh] = useState(false);
   const intervalRef = useRef(null);
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    const hasInProgress = runs.some((r) => r.status === 'IN_PROGRESS');
-    setAutoRefresh(hasInProgress);
-    if (hasInProgress) {
+    const hasActive = runs.some(r => ['RUNNING', 'IN_PROGRESS', 'PENDING'].includes(r.status?.toUpperCase()));
+    setAutoRefresh(hasActive);
+    if (hasActive) {
       intervalRef.current = setInterval(load, 10000);
     } else {
       clearInterval(intervalRef.current);
@@ -82,13 +149,29 @@ export default function RunHistoryPage() {
 
   const load = async () => {
     try {
-      // Use mock data — replace with: const { data } = await apiClient.get('/run-history/');
-      await new Promise((r) => setTimeout(r, 600));
-      setRuns(MOCK_RUNS);
+      const { data } = await apiClient.get('/run-history/');
+      setRuns(data);
+      setLogRun(prev => prev ? (data.find(r => r.id === prev.id) || prev) : null);
+    } catch {
+      // keep existing data on error
     } finally {
       setLoading(false);
     }
   };
+
+  // Derive which tabs have data
+  const tabCounts = TRIGGER_TABS.reduce((acc, tab) => {
+    acc[tab.key] = tab.key === 'all'
+      ? runs.length
+      : runs.filter(r => r.trigger_type === tab.key).length;
+    return acc;
+  }, {});
+
+  const visibleTabs = TRIGGER_TABS;
+
+  const filtered = activeTab === 'all'
+    ? runs
+    : runs.filter(r => r.trigger_type === activeTab);
 
   return (
     <>
@@ -108,12 +191,41 @@ export default function RunHistoryPage() {
           </div>
         }
       >
-        <div className="p-6">
+        <div className="p-6 space-y-4">
+
+          {/* Trigger type tabs */}
+          <div className="flex items-center gap-1 border-b border-gray-100">
+            {visibleTabs.map(tab => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                    active
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Icon size={13} strokeWidth={2} />
+                  {tab.label}
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                    active ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {tabCounts[tab.key] ?? 0}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Table */}
           <div className="card overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50/60 border-b border-gray-100">
-                  {['Scheduler', 'Task', 'Run At', 'Duration', 'Status', 'Logs'].map((h) => (
+                  {['Scheduler', 'Task', 'Trigger', 'Run At', 'Duration', 'Status', 'Logs'].map(h => (
                     <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -121,9 +233,9 @@ export default function RunHistoryPage() {
               <tbody>
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i}><td colSpan={6}><SkeletonRow /></td></tr>
+                    <tr key={i}><td colSpan={7}><SkeletonRow /></td></tr>
                   ))
-                ) : runs.map((run, i) => (
+                ) : filtered.map((run, i) => (
                   <tr
                     key={run.id}
                     className={`border-b border-gray-50 hover:bg-gray-50/60 transition-colors ${i % 2 !== 0 ? 'bg-gray-50/30' : ''}`}
@@ -132,14 +244,12 @@ export default function RunHistoryPage() {
                       {run.schedule?.name || <span className="text-gray-400 italic text-xs">Manual</span>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">{run.task?.name || '—'}</td>
+                    <td className="px-6 py-4"><TriggerBadge type={run.trigger_type} /></td>
                     <td className="px-6 py-4 text-sm text-gray-500">{formatDate(run.started_at)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{formatDuration(run.started_at, run.completed_at)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500">{fmtDuration(run.duration_seconds)}</td>
                     <td className="px-6 py-4"><StatusBadge status={run.status} /></td>
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => setLogRun(run)}
-                        className="btn-ghost btn-sm"
-                      >
+                      <button onClick={() => setLogRun(run)} className="btn-ghost btn-sm">
                         <FileText size={13} strokeWidth={1.75} /> View Log
                       </button>
                     </td>
@@ -148,33 +258,26 @@ export default function RunHistoryPage() {
               </tbody>
             </table>
 
-            {!loading && runs.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <FileText size={40} className="text-gray-200 mb-3" strokeWidth={1.5} />
-                <p className="text-sm text-gray-500">No run history yet</p>
+                <p className="text-sm text-gray-500">No runs for this trigger type</p>
+                <p className="text-xs text-gray-400 mt-1">Runs will appear here once schedules execute</p>
               </div>
             )}
           </div>
         </div>
       </PageWrapper>
 
-      <Sheet
+      <Modal
         open={!!logRun}
         onClose={() => setLogRun(null)}
         title="Execution Log"
-        subtitle={logRun ? `${logRun.task?.name} — ${formatDate(logRun.started_at)}` : ''}
-        width="w-[600px]"
+        subtitle={logRun ? `${logRun.task?.name}${logRun.schedule ? ` · ${logRun.schedule.name}` : ''}` : ''}
+        width="max-w-3xl"
       >
-        {logRun && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <StatusBadge status={logRun.status} />
-              <span className="text-xs text-gray-400">{formatDuration(logRun.started_at, logRun.completed_at)}</span>
-            </div>
-            <LogViewer log={logRun.log_output} />
-          </div>
-        )}
-      </Sheet>
+        {logRun && <LogViewer run={logRun} />}
+      </Modal>
     </>
   );
 }

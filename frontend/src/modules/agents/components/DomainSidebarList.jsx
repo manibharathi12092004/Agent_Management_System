@@ -70,7 +70,7 @@ export default function DomainSidebarList({
                     {/* Name + count */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className={`text-sm font-semibold truncate ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>
+                        <span className={`text-sm font-semibold break-words ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>
                           {domain.name}
                         </span>
                         <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
@@ -103,7 +103,7 @@ export default function DomainSidebarList({
                                      hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors text-left"
                         >
                           <Bot size={12} className="text-gray-400 flex-shrink-0" strokeWidth={1.75} />
-                          <span className="truncate">{agent.name}</span>
+                          <span className="break-words">{agent.name}</span>
                         </button>
                       ))}
                     </div>

@@ -9,6 +9,9 @@ from app.routers import agent
 from app.routers import dashboard
 from app.routers import domain
 from app.routers import task
+from app.routers import test_celery
+from app.routers import schedule
+from app.routers import run_history
 
 # =========================================================
 # App Factory
@@ -73,6 +76,26 @@ def create_app() -> FastAPI:
         task.router,
         prefix="/api/v1/tasks",
         tags=["Tasks"],
+    )
+
+    # Test endpoints for Celery verification (remove in production)
+    app.include_router(
+        test_celery.router,
+        prefix="/api/v1/test",
+        tags=["Test"],
+    )
+
+    # Register routers for Schedules
+    app.include_router(
+        schedule.router,
+        prefix="/api/v1/schedules",
+        tags=["Schedules"],
+    )
+
+    app.include_router(
+        run_history.router,
+        prefix="/api/v1/run-history",
+        tags=["Run History"],
     )
     
     return app
