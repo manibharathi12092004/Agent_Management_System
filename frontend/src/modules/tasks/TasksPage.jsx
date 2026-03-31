@@ -16,7 +16,7 @@ export function buildCanvasLayout(steps, stepResults = {}) {
       id: 'trigger',
       type: 'trigger',
       position: { x: 300, y: Y_START },
-      data: { label: 'Start', status: stepResults.__running ? 'running' : 'idle' },
+      data: { label: 'Dry Run', status: stepResults.__running ? 'running' : 'idle' },
     },
     ...steps.map((s, i) => {
       const result = stepResults[s.agent_id];
@@ -247,7 +247,7 @@ export default function TasksPage() {
                     ? <Loader2 size={12} className="animate-spin" />
                     : <Play size={12} strokeWidth={2.5} fill="currentColor" />
                   }
-                  {running ? 'Running...' : 'Run'}
+                  {running ? 'Running...' : 'Dry Run'}
                 </button>
                 <button
                   onClick={() => handleEditTask(selectedTask)}

@@ -22,8 +22,12 @@ logger = logging.getLogger(__name__)
 SYNC_INTERVAL = 60  # seconds between DB re-syncs
 
 
-def _fetch_active_cron_schedules() -> list[dict]:
-    """Fetch active cron schedules from DB synchronously."""
+def _fetch_active_cron_schedules() -> tuple[list[dict], bool]:
+    """
+    Fetch active cron schedules from DB synchronously.
+    Returns (schedules, success) — success=False means DB fetch failed,
+    so callers must NOT remove existing entries.
+    """
     async def _query():
         import app.models.llm_config   # noqa
         import app.models.tool         # noqa
@@ -33,27 +37,45 @@ def _fetch_active_cron_schedules() -> list[dict]:
         import app.models.task_run     # noqa
         import app.models.domain       # noqa
 
-        from app.db.session import AsyncSessionLocal
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+        from sqlalchemy.pool import NullPool
+        from app.config import settings
         from app.repositories.schedule import ScheduleRepository
 
-        async with AsyncSessionLocal() as db:
-            repo = ScheduleRepository(db)
-            schedules = await repo.list_active_cron()
-            return [
-                {
-                    "id": str(s.id),
-                    "name": s.name,
-                    "cron_expression": s.cron_expression,
-                }
-                for s in schedules
-                if s.cron_expression
-            ]
+        # Use NullPool + fresh engine so Beat's event loop doesn't conflict
+        # with connections created in worker task loops
+        engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, echo=False)
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
+        try:
+            async with session_factory() as db:
+                repo = ScheduleRepository(db)
+                schedules = await repo.list_active_cron()
+                return [
+                    {
+                        "id": str(s.id),
+                        "name": s.name,
+                        "cron_expression": s.cron_expression,
+                    }
+                    for s in schedules
+                    if s.cron_expression
+                ]
+        finally:
+            await engine.dispose()
+
+    # Always use a brand-new event loop to avoid conflicts with Beat's internal loop
+    loop = asyncio.new_event_loop()
     try:
-        return asyncio.run(_query())
+        result = loop.run_until_complete(_query())
+        return result, True
     except Exception as e:
         logger.error(f"Failed to load schedules from DB: {e}")
-        return []
+        return [], False
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
 
 
 def _parse_crontab(expr: str) -> crontab:
@@ -72,7 +94,6 @@ class DatabaseScheduler(PersistentScheduler):
     """
 
     def setup_schedule(self):
-        # Populate beat_schedule BEFORE parent initializes _store
         self._load_db_into_beat_schedule()
         self._last_sync = time.monotonic()
         super().setup_schedule()
@@ -86,7 +107,10 @@ class DatabaseScheduler(PersistentScheduler):
 
     def _load_db_into_beat_schedule(self):
         """Initial load — called before _store exists."""
-        schedules = _fetch_active_cron_schedules()
+        schedules, success = _fetch_active_cron_schedules()
+        if not success:
+            logger.warning("DatabaseScheduler: Could not load schedules at startup — will retry on next sync")
+            return
         if not schedules:
             logger.info("DatabaseScheduler: No active cron schedules found in DB")
             return
@@ -96,29 +120,26 @@ class DatabaseScheduler(PersistentScheduler):
 
     def _resync(self):
         """
-        Re-query DB and reconcile:
-        - Remove entries for inactive/deleted schedules
-        - Add any newly activated schedules
-        Called during tick() so _store is guaranteed to be initialized.
+        Re-query DB and reconcile beat_schedule.
+        IMPORTANT: if DB fetch fails, do nothing — never remove entries on error.
         """
-        try:
-            db_schedules = _fetch_active_cron_schedules()
-        except Exception as e:
-            logger.error(f"DatabaseScheduler: Re-sync failed: {e}")
+        db_schedules, success = _fetch_active_cron_schedules()
+
+        if not success:
+            # DB unreachable — keep existing entries, try again next cycle
+            logger.warning("DatabaseScheduler: Re-sync skipped — DB fetch failed, keeping existing entries")
             return
 
         active_keys = {"schedule:" + s["id"] for s in db_schedules}
 
-        # Find stale entries (were in beat_schedule but no longer active)
+        # Only remove entries that are confirmed inactive (DB returned successfully)
         stale_keys = [
             k for k in list(self.app.conf.beat_schedule)
             if k.startswith("schedule:") and k not in active_keys
         ]
 
         for key in stale_keys:
-            # Remove from conf
             self.app.conf.beat_schedule.pop(key, None)
-            # Remove from the persistent store entries directly
             try:
                 entries = self._store.get("entries", {})
                 if key in entries:
@@ -126,9 +147,9 @@ class DatabaseScheduler(PersistentScheduler):
                     self._store["entries"] = entries
             except Exception:
                 pass
-            logger.info(f"DatabaseScheduler: Removed stale entry '{key}'")
+            logger.info(f"DatabaseScheduler: Removed inactive entry '{key}'")
 
-        # Add/update active schedules
+        # Add newly activated schedules
         added = 0
         for sched in db_schedules:
             key = "schedule:" + sched["id"]
@@ -137,13 +158,13 @@ class DatabaseScheduler(PersistentScheduler):
                 added += 1
 
         if stale_keys or added:
-            # Rebuild in-memory schedule from updated beat_schedule
             self.merge_inplace(self.app.conf.beat_schedule)
             self.sync()
-            logger.info(
-                f"DatabaseScheduler: Re-sync complete — "
-                f"{len(db_schedules)} active, {len(stale_keys)} removed, {added} added"
-            )
+
+        logger.info(
+            f"DatabaseScheduler: Re-sync — {len(db_schedules)} active, "
+            f"{len(stale_keys)} removed, {added} added"
+        )
 
     def _register_entry(self, sched: dict):
         key = "schedule:" + sched["id"]

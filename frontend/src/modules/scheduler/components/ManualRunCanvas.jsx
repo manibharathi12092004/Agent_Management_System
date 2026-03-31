@@ -104,6 +104,11 @@ export default function ManualRunCanvas({ schedule, onClose }) {
     const logLines = [];
     const accumulated = {};
     let anyFailed = false;
+    let totalSteps = steps.length;
+    let successCount = 0, failedCount = 0, skippedCount = 0;
+
+    // UTC timestamp helper matching backend format
+    const utcNow = () => new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
 
     try {
       const response = await fetch(
@@ -131,17 +136,28 @@ export default function ManualRunCanvas({ schedule, onClose }) {
           try {
             const result = JSON.parse(payload);
             const status = result.skipped ? 'skipped' : result.error ? 'failed' : 'success';
-            if (status === 'failed') anyFailed = true;
+            if (status === 'failed') { anyFailed = true; failedCount++; }
+            else if (status === 'skipped') skippedCount++;
+            else successCount++;
+
             accumulated[result.agent_id] = {
               status,
               output: result.error || result.output,
               duration_ms: result.duration_ms,
             };
 
-            // Build log line
-            if (result.skipped) logLines.push(`[SKIP]  Step ${result.step_order} — ${result.agent_name}`);
-            else if (result.error) { logLines.push(`[FAIL]  Step ${result.step_order} — ${result.agent_name}`); logLines.push(`        Error: ${result.error}`); }
-            else { logLines.push(`[OK]    Step ${result.step_order} — ${result.agent_name}  (${result.duration_ms}ms)`); }
+            // Build log lines matching cron format exactly
+            const ts = utcNow();
+            if (result.skipped) {
+              logLines.push(`[${ts}] [SKIP]  Step ${result.step_order} — ${result.agent_name}`);
+            } else if (result.error) {
+              logLines.push(`[${ts}] [FAIL]  Step ${result.step_order} — ${result.agent_name}  (${result.duration_ms}ms)`);
+              logLines.push(`[${ts}]         Error: ${result.error}`);
+            } else {
+              logLines.push(`[${ts}] [OK]    Step ${result.step_order} — ${result.agent_name}  (${result.duration_ms}ms)`);
+              const preview = (result.output || '').replace(/\n/g, ' ').trim().slice(0, 300);
+              if (preview) logLines.push(`[${ts}]         Output: ${preview}${result.output?.length > 300 ? '...' : ''}`);
+            }
 
             stepIndex++;
             const nextStep = steps[stepIndex];
@@ -168,13 +184,28 @@ export default function ManualRunCanvas({ schedule, onClose }) {
         ...accumulated,
       }));
 
-      // Save to run history
+      // Build header + summary matching cron log format
+      const sep = '─'.repeat(60);
       const completedAt = new Date();
       const durationSeconds = (completedAt - new Date(startedAt)) / 1000;
-      logLines.unshift(`[${new Date(startedAt).toISOString()}] Manual trigger: ${schedule.name}`);
-      if (!anyFailed) logLines.push('[SUCCESS] Workflow completed successfully');
-      else logLines.push('[PARTIAL] Workflow finished with failed step(s)');
+      const startTs = new Date(startedAt).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+      const endTs = utcNow();
 
+      const fullLog = [
+        `[${startTs}] Starting workflow | task_id=${task.id}`,
+        `[${endTs}] ${sep}`,
+        `[${endTs}] WORKFLOW: ${task.name}`,
+        `[${endTs}] STEPS: ${totalSteps} total  |  ${successCount} succeeded  |  ${failedCount} failed  |  ${skippedCount} skipped`,
+        `[${endTs}] ${sep}`,
+        ...logLines,
+        `[${endTs}] ${sep}`,
+        `[${endTs}] ${!anyFailed ? '[SUCCESS] Workflow completed successfully' : `[PARTIAL] Workflow finished with ${failedCount} failed step(s)`}`,
+      ].join('\n');
+
+      if (anyFailed) toast.error('Workflow stopped — a step failed');
+      else toast.success(`"${schedule.name}" completed successfully`);
+
+      // Save to run history
       await fetch(
         `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/run-history/record`,
         {
@@ -184,15 +215,12 @@ export default function ManualRunCanvas({ schedule, onClose }) {
             task_id: task.id,
             schedule_id: schedule.id,
             status: anyFailed ? 'failed' : 'completed',
-            log_output: logLines.join('\n'),
+            log_output: fullLog,
             duration_seconds: durationSeconds,
             started_at: startedAt,
           }),
         }
       );
-
-      if (anyFailed) toast.error('Workflow stopped — a step failed');
-      else toast.success(`"${schedule.name}" completed successfully`);
 
     } catch {
       setStepResults(prev => ({ ...prev, __running: false, __done: false }));

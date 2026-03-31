@@ -54,7 +54,7 @@ async def get_dashboard_stats(
         select(TaskRun)
         .options(selectinload(TaskRun.task), selectinload(TaskRun.schedule))
         .order_by(desc(TaskRun.created_at))
-        .limit(7)
+        .limit(5)
     )
     recent_runs = [
         {

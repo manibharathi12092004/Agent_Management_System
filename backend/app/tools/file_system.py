@@ -88,21 +88,30 @@ def count_lines(path: str) -> str:
 
 def write_file(path: str, content: str) -> str:
     """
-    Create or overwrite a file.
+    Create a file. If the filename already exists, appends _1, _2, etc.
+    to avoid overwriting existing files.
 
     Args:
         path: Relative file path.
         content: Text to write.
 
     Returns:
-        Success message.
+        Success message with the actual filename used.
     """
     target = _safe_path(path)
-
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
 
-    return "File written successfully."
+    # Auto-increment filename if it already exists
+    if target.exists():
+        stem = target.stem
+        suffix = target.suffix
+        counter = 1
+        while target.exists():
+            target = target.parent / f"{stem}_{counter}{suffix}"
+            counter += 1
+
+    target.write_text(content, encoding="utf-8")
+    return f"File written successfully: {target.name}"
 
 
 def search_files(keyword: str, path: str = "") -> str:

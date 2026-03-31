@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -14,13 +14,26 @@ import OutputNode from './nodes/OutputNode';
 
 const nodeTypes = { agent: AgentNode, trigger: TriggerNode, output: OutputNode };
 
+function useStableSync(setter, propValue) {
+  // Only call setter when the serialized value actually changes — prevents
+  // React Flow internal state wipe from reference-only changes
+  const prevRef = useRef(null);
+  useEffect(() => {
+    const serialized = JSON.stringify(propValue);
+    if (serialized !== prevRef.current) {
+      prevRef.current = serialized;
+      setter(propValue);
+    }
+  }, [propValue]);
+}
+
 export default function WorkflowCanvas({ nodes: propNodes = [], edges: propEdges = [], onNodeClick }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(propNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(propEdges);
 
-  // Sync when parent updates nodes/edges (task switch, dry run results)
-  useEffect(() => { setNodes(propNodes); }, [propNodes]);
-  useEffect(() => { setEdges(propEdges); }, [propEdges]);
+  // Sync only when content actually changes, not just reference
+  useStableSync(setNodes, propNodes);
+  useStableSync(setEdges, propEdges);
 
   const handleNodeClick = useCallback((_, node) => {
     if (onNodeClick) onNodeClick(node);

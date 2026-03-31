@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
+from sqlalchemy.pool import NullPool
 
 import app.models.llm_config   # noqa
 import app.models.tool         # noqa
@@ -25,22 +26,50 @@ def _now_iso() -> str:
 
 
 def _run_async(coro):
-    """Run a coroutine in a fresh event loop, suppressing post-close cleanup errors."""
+    """Run a coroutine in a fresh event loop with a fresh DB engine (NullPool).
+    
+    Using NullPool prevents asyncpg connections from being reused across
+    different event loops, which causes 'Future attached to a different loop' errors
+    when multiple Celery tasks run sequentially in the same process.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from sqlalchemy.pool import NullPool
+    from app.config import settings
+    import app.db.session as db_session
+
+    # Create a fresh engine with NullPool for this task's event loop
+    fresh_engine = create_async_engine(
+        settings.DATABASE_URL,
+        poolclass=NullPool,
+        echo=False,
+    )
+    fresh_session = async_sessionmaker(
+        bind=fresh_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    # Temporarily replace the global session factory
+    original_session = db_session.AsyncSessionLocal
+    original_engine = db_session.engine
+    db_session.AsyncSessionLocal = fresh_session
+    db_session.engine = fresh_engine
+
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)
     finally:
+        # Dispose the fresh engine and restore originals
         try:
-            # Cancel any lingering tasks before closing
-            pending = asyncio.all_tasks(loop)
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.run_until_complete(fresh_engine.dispose())
         except Exception:
             pass
         try:
             loop.close()
         except Exception:
             pass
+        db_session.AsyncSessionLocal = original_session
+        db_session.engine = original_engine
 
 
 # =====================================================================
