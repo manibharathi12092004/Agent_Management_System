@@ -1,8 +1,11 @@
 
 from pathlib import Path
 
-# Root directory for all filesystem operations
-BASE_DIR = Path("uploads/agent_fs").resolve()
+from app.config import settings
+
+# Root directory for all filesystem operations — anchored to UPLOADS_DIR from config
+BASE_DIR = (Path(settings.UPLOADS_DIR) / "agent_fs").resolve()
+BASE_DIR.mkdir(parents=True, exist_ok=True)  # ensure directory exists on import
 
 
 def _safe_path(user_path: str) -> Path:

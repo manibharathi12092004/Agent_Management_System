@@ -110,10 +110,24 @@ celerybeat-schedule.dat
 celerybeat-schedule.dir
 celerybeat.pid
 
+# Sandbox proxy build artifacts
+backend/agent_sandbox_proxy/__pycache__/
+
 # =========================
 # Project specific
 # =========================
 file_writer_agent.md
+research_agent.md
+
+# Temp/one-off scripts at backend root
+backend/check_*.py
+backend/fix_*.py
+backend/enable_*.py
+backend/update_*.py
+backend/test_*.py
+backend/test_direct_agent.py
+backend/test_full_workflow.py
+backend/test_tool_registration.py
 
 # =========================
 # Frontend / Node

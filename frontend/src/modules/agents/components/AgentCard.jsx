@@ -1,4 +1,4 @@
-import { Bot, Edit, Trash2, Play, FileText, Wrench } from 'lucide-react';
+import { Bot, Edit, Trash2, Play, FileText, Wrench, Container } from 'lucide-react';
 
 const PROVIDER_COLORS = {
   openai:    'bg-emerald-100 text-emerald-700',
@@ -31,6 +31,11 @@ export default function AgentCard({ agent, onEdit, onDelete, onDryRun }) {
       <div className="flex flex-wrap gap-1.5">
         {providerKey && (
           <span className={`badge text-[10px] ${providerCls}`}>{providerKey}</span>
+        )}
+        {agent.run_in_sandbox && (
+          <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200">
+            <Container size={9} strokeWidth={2.5} /> Sandboxed
+          </span>
         )}
         {agent.skill_file_path && (
           <span className="badge-gray text-[10px]"><FileText size={9} /> Skill file</span>

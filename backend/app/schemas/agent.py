@@ -58,6 +58,12 @@ class AgentCreate(BaseModel):
 
     is_active: bool = True
 
+    run_in_sandbox: bool = False
+    sandbox_config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Sandbox configuration for Docker isolation"
+    )
+
 
 # =========================================================
 # Agent Update Schema (Partial Update)
@@ -77,6 +83,9 @@ class AgentUpdate(BaseModel):
     tool_ids: Optional[List[UUID]] = None
 
     is_active: Optional[bool] = None
+
+    run_in_sandbox: Optional[bool] = None
+    sandbox_config: Optional[Dict[str, Any]] = None
 
 
 # =========================================================
@@ -100,6 +109,9 @@ class AgentBaseResponse(BaseModel):
     tools: List[ToolNestedResponse] = []
 
     is_active: bool
+
+    run_in_sandbox: bool = False
+    sandbox_config: Dict[str, Any] = {}
 
     created_at: datetime
     updated_at: datetime

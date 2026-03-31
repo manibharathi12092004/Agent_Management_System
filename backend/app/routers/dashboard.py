@@ -47,7 +47,11 @@ async def get_dashboard_stats(
     schedule_count_result = await db.execute(schedule_count_query)
     schedule_count = schedule_count_result.scalar() or 0
 
-    # Recent runs (last 7, all trigger types combined)
+    # Count total task runs
+    total_runs_result = await db.execute(select(func.count(TaskRun.id)))
+    total_runs = total_runs_result.scalar() or 0
+
+    # Recent runs (last 5)
     from sqlalchemy.orm import selectinload
     from sqlalchemy import desc
     runs_result = await db.execute(
@@ -74,6 +78,7 @@ async def get_dashboard_stats(
         "agent_count": agent_count,
         "task_count": task_count,
         "schedule_count": schedule_count,
+        "total_runs": total_runs,
         "llm_config_count": llm_count,
         "tool_count": tool_count,
         "recent_runs": recent_runs,

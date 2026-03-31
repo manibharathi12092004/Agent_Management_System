@@ -20,13 +20,30 @@ def file_system(
     keyword: str = "",
 ) -> str:
     """
-    Unified filesystem tool entry point.
-
+    Unified filesystem tool for file operations in a sandboxed directory.
+    
+    CRITICAL: You MUST call this function to perform file operations. Do NOT just describe what you would do.
+    
+    Actions:
+    - "list": List all files in a directory. Requires: path (optional, defaults to root)
+    - "read": Read contents of a file. Requires: path
+    - "count": Count lines in a file. Requires: path
+    - "write": Create/write a file. Requires: path, content
+    - "search": Search for keyword in files. Requires: keyword, path (optional)
+    
+    Examples:
+    - file_system(action="write", path="report.md", content="# My Report\\n\\nContent here")
+    - file_system(action="list", path="")
+    - file_system(action="read", path="report.md")
+    
     Args:
         action: One of ["list", "read", "count", "write", "search"]
-        path: File or directory path
-        content: Used only for write action
-        keyword: Used only for search action
+        path: File or directory path (relative to sandbox root)
+        content: File content (required for write action)
+        keyword: Search term (required for search action)
+    
+    Returns:
+        String result of the operation
     """
 
     if action == "list":

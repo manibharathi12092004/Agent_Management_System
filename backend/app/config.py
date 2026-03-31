@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     UPLOADS_DIR: str = "./uploads"
 
+    # Sandbox
+    SANDBOX_HMAC_SECRET: str = "change-me-in-production"
+    SANDBOX_TIMEOUT_SECONDS: int = 30
+
 
     # Pydantic Settings Config
 

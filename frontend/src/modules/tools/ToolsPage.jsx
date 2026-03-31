@@ -5,15 +5,34 @@ import { SkeletonCard } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toast';
 import { toolService } from '../../services/toolService';
 import { agentService } from '../../services/agentService';
-import { Wrench, Users, Check, Loader2, X } from 'lucide-react';
+import { Wrench, Users, Check, Loader2 } from 'lucide-react';
 
 function ToolCard({ tool, selected, onClick }) {
   const typeColors = {
     filesystem: 'bg-indigo-50 text-indigo-600',
     web:        'bg-blue-50 text-blue-600',
+    external:   'bg-blue-50 text-blue-600',
     default:    'bg-gray-100 text-gray-600',
   };
   const tc = typeColors[tool.tool_type] || typeColors.default;
+
+  // Extract action names from default_params — {actions:[{id, label}]}
+  const actions = (() => {
+    const p = tool.default_params;
+    if (!p) return [];
+    if (Array.isArray(p.actions)) {
+      return p.actions.map((a) => ({
+        id: typeof a === 'string' ? a : (a.id ?? ''),
+        label: typeof a === 'string' ? a : (a.label ?? a.id ?? ''),
+      })).filter((a) => a.id);
+    }
+    return [];
+  })();
+
+  // Trim description to first sentence for cleaner display
+  const shortDesc = tool.description
+    ? tool.description.split('.')[0].trim()
+    : '';
 
   return (
     <div
@@ -26,30 +45,30 @@ function ToolCard({ tool, selected, onClick }) {
         <div className={`p-2.5 rounded-xl ${tc} flex-shrink-0`}>
           <Wrench size={18} strokeWidth={1.75} />
         </div>
+
         <div className="flex-1 min-w-0">
+          {/* Name + function key */}
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-gray-900">{tool.name}</h3>
             <span className="badge-gray font-mono text-[10px]">{tool.function_name}</span>
           </div>
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{tool.description}</p>
 
-          {tool.default_params?.actions?.length > 0 && (
+          {/* Short description */}
+          {shortDesc && (
+            <p className="text-xs text-gray-500 mt-1">{shortDesc}.</p>
+          )}
+
+          {/* Action badges */}
+          {actions.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-3">
-              {tool.default_params.actions.map((a, i) => (
-                <div key={i} className="group relative">
-                  <span className="badge-indigo text-[10px] cursor-default">{a.id}</span>
-                  {a.description && (
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-gray-900 text-white text-xs rounded-lg
-                                    opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-10 shadow-lg">
-                      {a.description}
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-                    </div>
-                  )}
-                </div>
+              {actions.map((a) => (
+                <span key={a.id} className="badge-indigo text-[10px]">{a.label}</span>
               ))}
             </div>
           )}
         </div>
+
+        {/* Selection indicator */}
         {selected && (
           <div className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center">
             <Check size={11} className="text-white" strokeWidth={3} />

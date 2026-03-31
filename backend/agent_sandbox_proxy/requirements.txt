@@ -1,0 +1,6 @@
+fastapi==0.135.1
+uvicorn==0.42.0
+pydantic==2.12.5
+google-genai==1.68.0
+google-adk==1.27.3
+litellm==1.82.6

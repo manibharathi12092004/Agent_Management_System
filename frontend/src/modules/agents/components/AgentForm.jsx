@@ -4,7 +4,7 @@ import { toast } from '../../../components/ui/Toast';
 import { agentService } from '../../../services/agentService';
 import { llmService } from '../../../services/llmService';
 import { toolService } from '../../../services/toolService';
-import { Upload, FileText, Loader2, Check, Sparkles } from 'lucide-react';
+import { Upload, FileText, Loader2, Check, Sparkles, Container } from 'lucide-react';
 
 export default function AgentForm({ open, agent = null, preselectedDomainId = null, preselectedDomainName = null, onClose, onSuccess }) {
   const isEdit = !!agent;
@@ -14,6 +14,7 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
   const [llmConfigs, setLlmConfigs] = useState([]);
   const [tools, setTools] = useState([]);
   const [selectedTools, setSelectedTools] = useState([]);
+  const [runInSandbox, setRunInSandbox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
 
@@ -29,10 +30,12 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
       });
       setTab(agent.skill_file_path ? 'file' : 'prompt');
       setSelectedTools(agent.tools?.map((t) => t.id) || []);
+      setRunInSandbox(agent.run_in_sandbox ?? false);
     } else {
       setForm({ name: '', description: '', system_prompt: '', llm_config_id: '' });
       setSkillFile(null);
       setSelectedTools([]);
+      setRunInSandbox(false);
       setTab('prompt');
     }
   }, [open, agent]);
@@ -54,10 +57,27 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
     if (!form.name.trim()) { toast.error('Agent name is required'); return; }
     setSaving(true);
     try {
+      if (isEdit) {
+        // ── Edit path — no domain re-suggestion ──────────────────
+        const payload = {
+          name: form.name,
+          description: form.description,
+          system_prompt: tab === 'prompt' ? form.system_prompt : null,
+          llm_config_id: form.llm_config_id || null,
+          tool_ids: selectedTools,
+          run_in_sandbox: runInSandbox,
+        };
+        await agentService.update(agent.id, payload, tab === 'file' ? skillFile : null);
+        toast.success('Agent updated successfully');
+        onSuccess({ domainId: agent.domain_id, isNewDomain: false });
+        onClose();
+        return;
+      }
+
+      // ── Create path — auto-suggest domain ────────────────────
       let domainId = preselectedDomainId || null;
       let isNewDomain = false;
 
-      // Only call LLM suggest-domain if no domain is preselected
       if (!domainId) {
         setSuggesting(true);
         try {
@@ -81,6 +101,7 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
         llm_config_id: form.llm_config_id || null,
         tool_ids: selectedTools,
         domain_id: domainId,
+        run_in_sandbox: runInSandbox,
       };
 
       await agentService.create(payload, tab === 'file' ? skillFile : null);
@@ -215,6 +236,36 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Sandbox toggle */}
+        <div
+          onClick={() => setRunInSandbox((v) => !v)}
+          className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all select-none ${
+            runInSandbox
+              ? 'bg-orange-50 border-orange-200'
+              : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <Container size={15} className={runInSandbox ? 'text-orange-500' : 'text-gray-400'} strokeWidth={2} />
+            <div>
+              <p className={`text-xs font-semibold ${runInSandbox ? 'text-orange-700' : 'text-gray-700'}`}>
+                Docker Sandbox
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {runInSandbox ? 'Agent runs in isolated Docker container' : 'Agent runs in-process (default)'}
+              </p>
+            </div>
+          </div>
+          {/* Toggle pill */}
+          <div className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
+            runInSandbox ? 'bg-orange-400' : 'bg-gray-300'
+          }`}>
+            <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              runInSandbox ? 'translate-x-4' : 'translate-x-0'
+            }`} />
           </div>
         </div>
 

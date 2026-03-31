@@ -21,9 +21,9 @@ export default function NodeOutputPanel({ node, onClose }) {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — no blur, it corrupts React Flow SVG edge rendering */}
       <div
-        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-50"
+        className="fixed inset-0 bg-black/10 z-50"
         onClick={onClose}
       />
 

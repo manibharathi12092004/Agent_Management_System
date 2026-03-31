@@ -84,6 +84,8 @@ async def get_domain_agents(
                 "domain_name": agent.domain.name if agent.domain else None,
                 "tools": agent.tools,
                 "is_active": agent.is_active,
+                "run_in_sandbox": agent.run_in_sandbox,
+                "sandbox_config": agent.sandbox_config,
                 "created_at": agent.created_at,
                 "updated_at": agent.updated_at
             }

@@ -61,7 +61,7 @@ export default function DashboardPage() {
               <StatsCard icon={Bot}      label="Agents"    value={stats?.agent_count    || 0} color="indigo"  onClick={() => navigate('/agents')} />
               <StatsCard icon={Workflow} label="Tasks"     value={stats?.task_count     || 0} color="coral"   onClick={() => navigate('/tasks')} />
               <StatsCard icon={Calendar} label="Schedules" value={stats?.schedule_count || 0} color="emerald" onClick={() => navigate('/scheduler')} />
-              <StatsCard icon={Activity} label="Total Runs" value={stats?.recent_runs?.length || 0} color="amber" onClick={() => navigate('/run-history')} />
+              <StatsCard icon={Activity} label="Total Runs" value={stats?.total_runs || 0} color="amber" onClick={() => navigate('/run-history')} />
             </>
           )}
         </div>

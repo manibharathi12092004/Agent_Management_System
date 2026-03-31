@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import String, Text, Boolean, ForeignKey, Table, Column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -47,6 +47,24 @@ class Agent(Base, UUIDMixin, TimestampMixin):
     )
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # --- Sandbox fields ---
+    # run_in_sandbox=True  → agent runs inside Docker sandbox container
+    # run_in_sandbox=False → agent runs in-process (normal FastAPI/Celery path)
+    run_in_sandbox: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
+    # sandbox_config schema:
+    # {
+    #   "allowed_dir": "./uploads/agent_fs",  # host path mounted into container
+    #   "image": "flowmind-agent-sandbox:latest",   # Docker image to use
+    #   "mem_limit": "512m",                  # Docker memory cap
+    #   "timeout_seconds": 120                # hard timeout for agent execution
+    # }
+    sandbox_config: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
 
     # Relationships
     llm_config = relationship("LLMConfig", lazy="selectin")

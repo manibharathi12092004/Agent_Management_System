@@ -13,6 +13,7 @@ from app.repositories.llm_config import LLMConfigRepository
 from app.repositories.tool import ToolRepository
 from app.schemas.agent import (
     AgentCreate,
+    AgentUpdate,
     DryRunRequest,   
     DryRunResponse,  
 )
@@ -114,6 +115,7 @@ class AgentService:
             parent_agent_id=data.parent_agent_id,
             domain_id=data.domain_id,
             is_active=data.is_active,
+            run_in_sandbox=data.run_in_sandbox,
         )
 
         # -----------------------------------------------------
@@ -255,3 +257,66 @@ class AgentService:
             duration_ms=duration_ms,
             model_used=llm_config.model_name,
         )
+    
+    # =========================================================
+    # UPDATE AGENT
+    # =========================================================
+    async def update_agent(
+        self,
+        agent_id: UUID,
+        data: AgentUpdate,
+    ) -> Agent:
+        """
+        Update agent fields including sandbox configuration.
+        """
+        agent = await self.repo.get_with_relations(agent_id)
+        
+        if not agent:
+            raise NotFoundError("Agent not found")
+        
+        # Update fields if provided
+        if data.name is not None:
+            agent.name = data.name
+        
+        if data.description is not None:
+            agent.description = data.description
+        
+        if data.system_prompt is not None:
+            agent.system_prompt = data.system_prompt
+        
+        if data.llm_config_id is not None:
+            llm = await self.llm_repo.get(data.llm_config_id)
+            if not llm:
+                raise NotFoundError("LLM configuration not found")
+            agent.llm_config_id = data.llm_config_id
+        
+        if data.parent_agent_id is not None:
+            parent = await self.repo.get(data.parent_agent_id)
+            if not parent:
+                raise NotFoundError("Parent agent not found")
+            agent.parent_agent_id = data.parent_agent_id
+        
+        if data.tool_ids is not None:
+            tools = await self.tool_repo.get_by_ids(data.tool_ids)
+            if len(tools) != len(data.tool_ids):
+                raise ValidationError("Some tools not found")
+            agent.tools = tools
+        
+        if data.is_active is not None:
+            agent.is_active = data.is_active
+        
+        # Update sandbox configuration
+        if data.run_in_sandbox is not None:
+            agent.run_in_sandbox = data.run_in_sandbox
+        
+        if data.sandbox_config is not None:
+            # Validate no path traversal in allowed_dir
+            allowed_dir = data.sandbox_config.get("allowed_dir", "")
+            if ".." in allowed_dir:
+                raise ValidationError("allowed_dir must not contain path traversal sequences (..)")
+            agent.sandbox_config = data.sandbox_config
+        
+        await self.db.commit()
+        await self.db.refresh(agent)
+        
+        return agent
