@@ -101,11 +101,45 @@ async def record_manual_run(
         schedule_id=UUID(schedule_id) if schedule_id else None,
         status=status,
         started_at=started_at,
-        completed_at=completed_at,
-        duration_seconds=duration_seconds or (completed_at - started_at).total_seconds(),
+        completed_at=completed_at if status != 'in_progress' else None,
+        duration_seconds=duration_seconds or (completed_at - started_at).total_seconds() if status != 'in_progress' else None,
         log_output=log_output,
         error_message=error_message,
     )
     db.add(run)
+    await db.commit()
+    return {"id": str(run.id), "status": run.status}
+
+
+@router.patch("/{run_id}")
+async def update_run(
+    run_id: UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an existing run record — used to transition IN_PROGRESS → completed/failed."""
+    from app.models.task_run import TaskRun
+    from sqlalchemy import select
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(TaskRun).where(TaskRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if "status" in body:
+        run.status = body["status"]
+    if "log_output" in body:
+        run.log_output = body["log_output"]
+    if "duration_seconds" in body:
+        run.duration_seconds = body["duration_seconds"]
+    if "error_message" in body:
+        run.error_message = body["error_message"]
+
+    # Set completed_at when transitioning to terminal state
+    if body.get("status") in ("completed", "failed"):
+        run.completed_at = datetime.now(timezone.utc)
+
     await db.commit()
     return {"id": str(run.id), "status": run.status}

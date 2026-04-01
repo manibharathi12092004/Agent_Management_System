@@ -103,6 +103,28 @@ export default function ManualRunCanvas({ schedule, onClose }) {
 
     const logLines = [];
     const accumulated = {};
+    let runRecordId = null;
+
+    // ── Save IN_PROGRESS record immediately so run history shows it live ──
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/run-history/record`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task_id: task.id,
+            schedule_id: schedule.id,
+            status: 'in_progress',
+            started_at: startedAt,
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        runRecordId = data.id;
+      }
+    } catch { /* non-fatal */ }
     let anyFailed = false;
     let totalSteps = steps.length;
     let successCount = 0, failedCount = 0, skippedCount = 0;
@@ -205,22 +227,37 @@ export default function ManualRunCanvas({ schedule, onClose }) {
       if (anyFailed) toast.error('Workflow stopped — a step failed');
       else toast.success(`"${schedule.name}" completed successfully`);
 
-      // Save to run history
-      await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/run-history/record`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            task_id: task.id,
-            schedule_id: schedule.id,
-            status: anyFailed ? 'failed' : 'completed',
-            log_output: fullLog,
-            duration_seconds: durationSeconds,
-            started_at: startedAt,
-          }),
-        }
-      );
+      // Save / update run history record
+      const finalPayload = {
+        task_id: task.id,
+        schedule_id: schedule.id,
+        status: anyFailed ? 'failed' : 'completed',
+        log_output: fullLog,
+        duration_seconds: durationSeconds,
+        started_at: startedAt,
+      };
+
+      if (runRecordId) {
+        // Update the existing IN_PROGRESS record
+        await fetch(
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/run-history/${runRecordId}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(finalPayload),
+          }
+        );
+      } else {
+        // Fallback: create new record
+        await fetch(
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/run-history/record`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(finalPayload),
+          }
+        );
+      }
 
     } catch {
       setStepResults(prev => ({ ...prev, __running: false, __done: false }));
