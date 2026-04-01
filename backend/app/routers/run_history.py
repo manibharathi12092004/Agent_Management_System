@@ -15,18 +15,23 @@ router = APIRouter()
 @router.get("/")
 async def list_run_history(
     limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
     trigger_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = (
-        select(TaskRun)
-        .options(
-            selectinload(TaskRun.task),
-            selectinload(TaskRun.schedule),
-        )
-        .order_by(desc(TaskRun.created_at))
-        .limit(limit)
-    )
+    from sqlalchemy import func
+
+    base_stmt = select(TaskRun).options(
+        selectinload(TaskRun.task),
+        selectinload(TaskRun.schedule),
+    ).order_by(desc(TaskRun.created_at))
+
+    # Total count for pagination
+    count_stmt = select(func.count()).select_from(TaskRun)
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar()
+
+    stmt = base_stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     runs = result.scalars().all()
 
@@ -49,11 +54,17 @@ async def list_run_history(
 
     serialized = [_serialize(r) for r in runs]
 
-    # Filter by trigger_type if provided
     if trigger_type and trigger_type != "all":
         serialized = [r for r in serialized if r["trigger_type"] == trigger_type]
 
-    return serialized
+    return {
+        "items": serialized,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "page": (offset // limit) + 1,
+        "total_pages": max(1, -(-total // limit)),  # ceiling division
+    }
 
 
 @router.post("/{run_id}/logs")

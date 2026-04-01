@@ -132,9 +132,14 @@ export default function RunHistoryPage() {
   const [logRun, setLogRun] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const intervalRef = useRef(null);
+  const PAGE_SIZE = 50;
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [activeTab]);
+  useEffect(() => { load(); }, [page, activeTab]);
 
   useEffect(() => {
     const hasActive = runs.some(r => ['RUNNING', 'IN_PROGRESS', 'PENDING'].includes(r.status?.toUpperCase()));
@@ -149,9 +154,18 @@ export default function RunHistoryPage() {
 
   const load = async () => {
     try {
-      const { data } = await apiClient.get('/run-history/');
-      setRuns(data);
-      setLogRun(prev => prev ? (data.find(r => r.id === prev.id) || prev) : null);
+      const offset = (page - 1) * PAGE_SIZE;
+      const params = { limit: PAGE_SIZE, offset };
+      if (activeTab !== 'all') params.trigger_type = activeTab;
+      const { data } = await apiClient.get('/run-history/', { params });
+      // Handle both paginated {items, total} and legacy array response
+      const items = Array.isArray(data) ? data : (data.items || []);
+      const tot   = Array.isArray(data) ? items.length : (data.total || items.length);
+      const pages = Array.isArray(data) ? 1 : (data.total_pages || 1);
+      setRuns(items);
+      setTotal(tot);
+      setTotalPages(pages);
+      setLogRun(prev => prev ? (items.find(r => r.id === prev.id) || prev) : null);
     } catch {
       // keep existing data on error
     } finally {
@@ -159,16 +173,17 @@ export default function RunHistoryPage() {
     }
   };
 
-  // Derive which tabs have data
+  // Tab counts — use total for current tab, runs.length for others (approximate)
   const tabCounts = TRIGGER_TABS.reduce((acc, tab) => {
-    acc[tab.key] = tab.key === 'all'
-      ? runs.length
-      : runs.filter(r => r.trigger_type === tab.key).length;
+    acc[tab.key] = tab.key === activeTab
+      ? total
+      : runs.filter(r => tab.key === 'all' || r.trigger_type === tab.key).length;
     return acc;
   }, {});
 
   const visibleTabs = TRIGGER_TABS;
 
+  // Already filtered server-side when activeTab !== 'all'
   const filtered = activeTab === 'all'
     ? runs
     : runs.filter(r => r.trigger_type === activeTab);
@@ -266,6 +281,73 @@ export default function RunHistoryPage() {
               </div>
             )}
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-gray-400">
+                Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} runs
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed px-2"
+                >
+                  «
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page numbers */}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let p;
+                  if (totalPages <= 5) {
+                    p = i + 1;
+                  } else if (page <= 3) {
+                    p = i + 1;
+                  } else if (page >= totalPages - 2) {
+                    p = totalPages - 4 + i;
+                  } else {
+                    p = page - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`w-8 h-8 text-xs font-medium rounded-lg transition-colors ${
+                        p === page
+                          ? 'bg-indigo-500 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => setPage(totalPages)}
+                  disabled={page === totalPages}
+                  className="btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed px-2"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </PageWrapper>
 
