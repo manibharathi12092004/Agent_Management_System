@@ -56,14 +56,15 @@ export default function RecentRunsTable({ runs }) {
           View all <ExternalLink size={12} strokeWidth={2} />
         </button>
       </div>
-      <table className="w-full">
+      <table className="w-full table-fixed">
         <thead>
           <tr className="bg-gray-50/60 border-b border-gray-100">
-            {['Scheduler', 'Task', 'Trigger', 'Run At', 'Duration', 'Status'].map((h) => (
-              <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {h}
-              </th>
-            ))}
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[22%]">Scheduler</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[25%]">Task</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[13%]">Trigger</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[18%]">Run At</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[10%]">Duration</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider w-[12%]">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -72,10 +73,12 @@ export default function RecentRunsTable({ runs }) {
               key={run.id}
               className={`border-b border-gray-50 hover:bg-gray-50/60 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}
             >
-              <td className="px-6 py-3.5 text-sm text-gray-700 font-medium">
-                {run.schedule?.name || <span className="text-gray-400 italic">Manual</span>}
+              <td className="px-6 py-3.5 text-sm text-gray-700 font-medium max-w-[140px]">
+                <p className="truncate">{run.schedule?.name || <span className="text-gray-400 italic">Manual</span>}</p>
               </td>
-              <td className="px-6 py-3.5 text-sm text-gray-700">{run.task?.name || '—'}</td>
+              <td className="px-6 py-3.5 text-sm text-gray-700 max-w-[160px]">
+                <p className="truncate">{run.task?.name || '—'}</p>
+              </td>
               <td className="px-6 py-3.5"><TriggerBadge type={run.trigger_type} /></td>
               <td className="px-6 py-3.5 text-sm text-gray-500">{formatDate(run.started_at)}</td>
               <td className="px-6 py-3.5 text-sm text-gray-500">

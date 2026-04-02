@@ -208,10 +208,6 @@ export default function TopBar({ title, subtitle, actions }) {
           )}
         </div>
 
-        {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity">
-          <span className="text-xs font-semibold text-white">AD</span>
-        </div>
       </div>
     </header>
   );

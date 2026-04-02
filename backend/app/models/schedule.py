@@ -37,5 +37,6 @@ class Schedule(Base, UUIDMixin, TimestampMixin):
     tasks = relationship(
         "Task",
         secondary=schedule_tasks,
+        order_by=schedule_tasks.c.run_order,
         lazy="selectin"
     )

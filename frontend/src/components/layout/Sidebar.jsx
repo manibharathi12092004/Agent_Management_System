@@ -121,13 +121,8 @@ export default function Sidebar() {
       {/* Logo */}
       <FlowMindLogo collapsed={sidebarCollapsed} />
 
-      {/* User badge */}
-      <div className="mt-3">
-        <UserBadge collapsed={sidebarCollapsed} />
-      </div>
-
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-4 space-y-5">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-4 space-y-5 mt-3">
         {NAV_GROUPS.map((group) => (
           <div key={group.label}>
             {!sidebarCollapsed && (

@@ -58,6 +58,13 @@ async def delete_schedule(schedule_id: UUID, db: AsyncSession = Depends(get_db))
 async def toggle_schedule(schedule_id: UUID, db: AsyncSession = Depends(get_db)):
     try:
         s = await ScheduleService(db).toggle_schedule(schedule_id)
+        # Immediately sync file/folder watchers if this is a watch-type schedule
+        if s.trigger_type in ("folder_watch", "file_watch"):
+            try:
+                from app.workers.watchers.watcher_manager import get_manager
+                get_manager()._sync()
+            except Exception:
+                pass
         return ScheduleToggleResponse(
             id=s.id, name=s.name, is_active=s.is_active,
             message=f"Schedule {'activated' if s.is_active else 'deactivated'}"

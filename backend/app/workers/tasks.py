@@ -77,7 +77,7 @@ def _run_async(coro):
 # =====================================================================
 
 @celery_app.task(bind=True, max_retries=3, name="app.workers.tasks.execute_task_workflow")
-def execute_task_workflow(self, task_run_id: str, task_id: str):
+def execute_task_workflow(self, task_run_id: str, task_id: str, extra_input: dict = None):
     """Execute a multi-agent workflow."""
 
     log_lines: list[str] = []
@@ -124,6 +124,7 @@ def execute_task_workflow(self, task_run_id: str, task_id: str):
             effective_input = {
                 "task": task.name,
                 "description": task.description or task.name,
+                **(extra_input or {}),
             }
 
             # ── Execute ──────────────────────────────────────────────
@@ -206,7 +207,7 @@ def execute_task_workflow(self, task_run_id: str, task_id: str):
 # =====================================================================
 
 @celery_app.task(bind=True, name="app.workers.tasks.execute_scheduled_tasks")
-def execute_scheduled_tasks(self, schedule_id: str):
+def execute_scheduled_tasks(self, schedule_id: str, input_data: dict = None):
     """Triggered by Beat. Creates TaskRun per task and dispatches each."""
 
     log_lines: list[str] = []
@@ -217,11 +218,14 @@ def execute_scheduled_tasks(self, schedule_id: str):
         logger.info(line)
 
     log(f"Schedule triggered | schedule_id={schedule_id}")
+    if input_data:
+        log(f"Trigger context: {input_data}")
 
     async def _dispatch():
         from app.db.session import AsyncSessionLocal
         from app.repositories.schedule import ScheduleRepository
         from app.models.task_run import TaskRun
+        from celery import chain as celery_chain
 
         async with AsyncSessionLocal() as db:
             repo = ScheduleRepository(db)
@@ -237,7 +241,9 @@ def execute_scheduled_tasks(self, schedule_id: str):
 
             log(f"Running schedule '{schedule.name}' with {len(schedule.tasks)} task(s)")
 
-            for task in schedule.tasks:
+            # Create all TaskRun records first (in order)
+            run_ids = []
+            for task in schedule.tasks:  # already sorted by run_order
                 run = TaskRun(
                     schedule_id=schedule.id,
                     task_id=task.id,
@@ -245,15 +251,34 @@ def execute_scheduled_tasks(self, schedule_id: str):
                 )
                 db.add(run)
                 await db.flush()
-
-                celery_result = execute_task_workflow.delay(
-                    task_run_id=str(run.id),
-                    task_id=str(task.id),
-                )
-                run.celery_task_id = celery_result.id
-                log(f"  Dispatched task '{task.name}' → celery_id={celery_result.id}")
+                run_ids.append((str(run.id), str(task.id), task.name))
 
             await db.commit()
+
+            # Dispatch as a Celery chain — Task 1 completes before Task 2 starts
+            if len(run_ids) == 1:
+                run_id, task_id, task_name = run_ids[0]
+                result = execute_task_workflow.delay(
+                    task_run_id=run_id,
+                    task_id=task_id,
+                    extra_input=input_data or {},
+                )
+                log(f"  Dispatched task '{task_name}' → celery_id={result.id}")
+            else:
+                # Chain: each task waits for the previous to complete
+                tasks_chain = celery_chain(
+                    *[
+                        execute_task_workflow.si(
+                            task_run_id=run_id,
+                            task_id=task_id,
+                            extra_input=input_data or {},
+                        )
+                        for run_id, task_id, _ in run_ids
+                    ]
+                )
+                result = tasks_chain.delay()
+                for _, _, task_name in run_ids:
+                    log(f"  Chained task '{task_name}' (sequential execution)")
 
     _run_async(_dispatch())
     log("Schedule dispatch complete")

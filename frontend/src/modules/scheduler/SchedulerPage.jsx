@@ -71,6 +71,7 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
     is_active: schedule?.is_active ?? true,
     task_ids: schedule?.tasks?.map(t => t.id) || [],
     docker_enabled: false,
+    trigger_config: schedule?.trigger_config || {},
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -88,13 +89,16 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
     if (form.trigger_type === 'cron' && !form.cron_expression?.trim()) {
       toast.error('Cron expression is required'); return;
     }
+    if ((form.trigger_type === 'folder_watch' || form.trigger_type === 'file_watch') && !form.trigger_config?.folder_path?.trim()) {
+      toast.error('Folder path is required for watch triggers'); return;
+    }
     setSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
         trigger_type: form.trigger_type,
         cron_expression: form.trigger_type === 'cron' ? form.cron_expression : null,
-        trigger_config: {},
+        trigger_config: form.trigger_config || {},
         is_active: form.is_active,
         task_ids: form.task_ids,
       };
@@ -156,11 +160,9 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
               </button>
             ))}
           </div>
-          {form.trigger_type !== 'cron' && form.trigger_type !== 'manual' && (
+          {form.trigger_type === 'email' && (
             <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-2">
-              {form.trigger_type === 'email' && '📧 Email trigger — coming in a future release.'}
-              {form.trigger_type === 'folder_watch' && '📁 Folder watch trigger — coming in a future release.'}
-              {form.trigger_type === 'file_watch' && '📄 File watch trigger — coming in a future release.'}
+              📧 Email trigger — coming in a future release.
             </p>
           )}
         </div>
@@ -199,44 +201,157 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
           </div>
         )}
 
+        {/* Folder Watch config */}
+        {form.trigger_type === 'folder_watch' && (
+          <div className="space-y-3 p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+            <div className="flex items-center gap-2 mb-1">
+              <Folder size={14} className="text-indigo-500" strokeWidth={2} />
+              <p className="text-xs font-semibold text-indigo-700">Folder Watch Configuration</p>
+            </div>
+            <div>
+              <label className="label">Watch Folder Path *</label>
+              <div className="flex items-center">
+                <span className="px-3 py-2 bg-gray-100 border border-r-0 border-gray-200 rounded-l-lg text-xs font-mono text-gray-500 flex-shrink-0">
+                  uploads/agent_fs/
+                </span>
+                <input
+                  className="input rounded-l-none font-mono text-sm"
+                  placeholder="incoming"
+                  value={(form.trigger_config?.folder_path || '').replace(/^\.?\/?uploads\/agent_fs\/?/, '')}
+                  onChange={e => set('trigger_config', {
+                    ...form.trigger_config,
+                    folder_path: `./uploads/agent_fs/${e.target.value.replace(/^\//, '')}`
+                  })}
+                />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Triggers when any file is created or modified in this folder</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.trigger_config?.recursive || false}
+                  onChange={e => set('trigger_config', { ...form.trigger_config, recursive: e.target.checked })}
+                  className="rounded border-gray-300 text-indigo-500"
+                />
+                <span className="text-xs text-gray-600">Watch subdirectories recursively</span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* File Watch config */}
+        {form.trigger_type === 'file_watch' && (
+          <div className="space-y-3 p-4 bg-purple-50/50 border border-purple-100 rounded-xl">
+            <div className="flex items-center gap-2 mb-1">
+              <FileText size={14} className="text-purple-500" strokeWidth={2} />
+              <p className="text-xs font-semibold text-purple-700">File Watch Configuration</p>
+            </div>
+            <div>
+              <label className="label">Watch Folder Path *</label>
+              <div className="flex items-center">
+                <span className="px-3 py-2 bg-gray-100 border border-r-0 border-gray-200 rounded-l-lg text-xs font-mono text-gray-500 flex-shrink-0">
+                  uploads/agent_fs/
+                </span>
+                <input
+                  className="input rounded-l-none font-mono text-sm"
+                  placeholder="incoming"
+                  value={(form.trigger_config?.folder_path || '').replace(/^\.?\/?uploads\/agent_fs\/?/, '')}
+                  onChange={e => set('trigger_config', {
+                    ...form.trigger_config,
+                    folder_path: `./uploads/agent_fs/${e.target.value.replace(/^\//, '')}`
+                  })}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="label">File Types to Watch *</label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {['.csv', '.txt', '.pdf', '.json', '.md', '.xlsx', '.xml'].map(ext => {
+                  const selected = (form.trigger_config?.file_types || []).includes(ext);
+                  return (
+                    <button
+                      key={ext}
+                      type="button"
+                      onClick={() => {
+                        const current = form.trigger_config?.file_types || [];
+                        const updated = selected
+                          ? current.filter(e => e !== ext)
+                          : [...current, ext];
+                        set('trigger_config', { ...form.trigger_config, file_types: updated });
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-mono font-medium border transition-all ${
+                        selected
+                          ? 'bg-purple-500 text-white border-purple-500'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
+                      }`}
+                    >
+                      {ext}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                Triggers when a file of selected type is created or modified. Select none to watch all files.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.trigger_config?.recursive || false}
+                  onChange={e => set('trigger_config', { ...form.trigger_config, recursive: e.target.checked })}
+                  className="rounded border-gray-300 text-purple-500"
+                />
+                <span className="text-xs text-gray-600">Watch subdirectories recursively</span>
+              </label>
+            </div>
+          </div>
+        )}
+
         {/* Tasks */}
         <div>
           <label className="label">
-            {form.trigger_type === 'manual' ? 'Task to Execute (select one)' : 'Tasks to Execute'}
+            {form.trigger_type === 'manual' ? 'Task to Execute (select one)' : 'Tasks to Execute (click to set run order)'}
           </label>
           {tasks.length === 0 ? (
             <p className="text-xs text-gray-400">No tasks available. Create tasks first.</p>
           ) : (
             <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
               {tasks.map(task => {
-                const selected = form.task_ids.includes(task.id);
+                const orderIndex = form.task_ids.indexOf(task.id);
+                const selected = orderIndex !== -1;
+                const order = orderIndex + 1;
                 const disabledByManual = form.trigger_type === 'manual' && !selected && form.task_ids.length >= 1;
                 return (
-                  <label
+                  <div
                     key={task.id}
                     onClick={() => !disabledByManual && toggleTask(task.id)}
                     className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-colors ${
                       disabledByManual ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                     } ${selected ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
                   >
-                    <div className={`w-4 h-4 rounded${form.trigger_type === 'manual' ? '-full' : ''} border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                      selected ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'
+                    {/* Order badge or empty circle */}
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-[11px] font-bold transition-colors ${
+                      selected
+                        ? 'bg-indigo-500 border-indigo-500 text-white'
+                        : 'border-gray-300 text-gray-400'
                     }`}>
-                      {selected && <Check size={10} className="text-white" strokeWidth={3} />}
+                      {selected ? order : ''}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{task.name}</p>
                       {task.description && <p className="text-xs text-gray-400 truncate">{task.description}</p>}
                     </div>
                     <span className="text-xs text-gray-400">{task.steps?.length ?? 0} steps</span>
-                  </label>
+                  </div>
                 );
               })}
             </div>
           )}
-          {form.task_ids.length > 0 && (
+          {form.task_ids.length > 0 && form.trigger_type !== 'manual' && (
             <p className="text-xs text-indigo-500 mt-1.5">
-              {form.trigger_type === 'manual' ? '1 task selected' : `${form.task_ids.length} task(s) selected`}
+              {form.task_ids.length} task(s) — runs in order shown above
             </p>
           )}
         </div>
@@ -244,8 +359,7 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
         {/* Toggles */}
         <div className="space-y-3">
           {[
-            { key: 'is_active',      label: 'Active',           desc: 'Run automatically on trigger' },
-            { key: 'docker_enabled', label: 'Docker Execution', desc: 'Isolated container (coming soon)' },
+            { key: 'is_active', label: 'Active', desc: 'Run automatically on trigger' },
           ].map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
               <div className="flex-1 min-w-0 pr-4">
