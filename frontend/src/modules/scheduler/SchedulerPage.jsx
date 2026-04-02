@@ -357,15 +357,20 @@ export default function SchedulerPage() {
                   {schedules.map((s, i) => (
                     <tr
                       key={s.id}
-                      className={`border-b border-gray-50 transition-colors ${i % 2 !== 0 ? 'bg-gray-50/30' : ''} ${s.trigger_type === 'manual' ? 'hover:bg-orange-50/40 cursor-pointer' : 'hover:bg-gray-50/60'}`}
-                      onClick={s.trigger_type === 'manual' ? () => setManualRunSchedule(s) : undefined}
+                      className={`border-b border-gray-50 transition-colors ${i % 2 !== 0 ? 'bg-gray-50/30' : ''} ${s.trigger_type === 'manual' && s.is_active ? 'hover:bg-orange-50/40 cursor-pointer' : 'hover:bg-gray-50/60'}`}
+                      onClick={s.trigger_type === 'manual' && s.is_active ? () => setManualRunSchedule(s) : undefined}
                     >
                       <td className="px-6 py-4 text-sm font-semibold text-gray-900">
                         <div className="flex items-center gap-2">
                           {s.name}
                           {s.trigger_type === 'manual' && (
-                            <span className="flex items-center gap-1 text-[10px] font-medium text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-full">
-                              <Play size={9} fill="currentColor" /> Click to run
+                            <span className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                              s.is_active
+                                ? 'text-orange-500 bg-orange-50'
+                                : 'text-gray-400 bg-gray-100'
+                            }`}>
+                              <Play size={9} fill="currentColor" />
+                              {s.is_active ? 'Click to run' : 'Inactive'}
                             </span>
                           )}
                         </div>

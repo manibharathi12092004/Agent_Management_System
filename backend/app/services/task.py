@@ -113,9 +113,15 @@ class TaskService:
         return await self.repo.get_with_steps(task_id)
 
     async def delete_task(self, task_id: UUID) -> None:
-        deleted = await self.repo.delete(task_id)
-        if not deleted:
+        task = await self.repo.get(task_id)
+        if not task:
             raise NotFoundError(f"Task {task_id} not found")
+        # Delete steps first to avoid FK constraint violation
+        from sqlalchemy import delete as sa_delete
+        from app.models.task import TaskWorkflowStep
+        await self.db.execute(sa_delete(TaskWorkflowStep).where(TaskWorkflowStep.task_id == task_id))
+        await self.db.execute(sa_delete(type(task)).where(type(task).id == task_id))
+        await self.db.commit()
 
     # ── Auto-Suggest ──────────────────────────────────────────────────
 

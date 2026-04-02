@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, Edit2, Play, Loader2 } from 'lucide-react';
+import { Zap, Edit2, Play, Loader2, Trash2 } from 'lucide-react';
 import WorkflowCanvas from '../../components/canvas/WorkflowCanvas';
 import TaskSidebarList from './components/TaskSidebarList';
 import TaskFormSheet from './components/TaskFormSheet';
 import NodeOutputPanel from './components/NodeOutputPanel';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { taskService } from '../../services/taskService';
 import { toast } from '../../components/ui/Toast';
 
@@ -67,6 +68,7 @@ export default function TasksPage() {
   const [stepResults, setStepResults] = useState({});
   const [running, setRunning] = useState(false);
   const [clickedNode, setClickedNode] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // Derive nodes/edges directly — recomputed whenever steps or results change
   const { nodes, edges } = buildCanvasLayout(canvasSteps, stepResults);
@@ -104,6 +106,25 @@ export default function TasksPage() {
     setClickedNode(null);
   }, []);
 
+  const handleDeleteTask = useCallback(() => {
+    if (!selectedTask) return;
+    setDeleteConfirm(true);
+  }, [selectedTask]);
+
+  const confirmDelete = useCallback(async () => {
+    setDeleteConfirm(false);
+    try {
+      await taskService.remove(selectedTask.id);
+      toast.success(`"${selectedTask.name}" deleted`);
+      setSelectedTask(null);
+      setCanvasSteps([]);
+      setStepResults({});
+      setClickedNode(null);
+      setRefreshKey(k => k + 1);
+    } catch {
+      toast.error('Failed to delete task');
+    }
+  }, [selectedTask]);
   const handleSaved = useCallback((savedTask) => {
     setRefreshKey(k => k + 1);
     if (savedTask?.steps) {
@@ -255,6 +276,12 @@ export default function TasksPage() {
                 >
                   <Edit2 size={12} strokeWidth={2} /> Edit
                 </button>
+                <button
+                  onClick={handleDeleteTask}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                >
+                  <Trash2 size={12} strokeWidth={2} /> Delete
+                </button>
               </>
             )}
 
@@ -288,6 +315,15 @@ export default function TasksPage() {
         onClose={() => setSheetOpen(false)}
         task={selectedTask}
         onSaved={handleSaved}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirm}
+        title="Delete Task"
+        message={`Delete "${selectedTask?.name}"? This cannot be undone.`}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirm(false)}
+        danger
       />
     </div>
   );

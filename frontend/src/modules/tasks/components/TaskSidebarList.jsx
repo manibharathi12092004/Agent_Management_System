@@ -60,14 +60,12 @@ export default function TaskSidebarList({ onNew, onSelect, onEdit, selectedId, r
                 }`}
                 onClick={() => onSelect(task)}
               >
-                {/* Task name */}
                 <span className={`text-sm flex-1 break-words ${
                   isSelected ? 'text-indigo-700 font-semibold' : 'text-gray-700'
                 }`}>
                   {task.name}
                 </span>
 
-                {/* Agent count badge */}
                 <span className={`flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                   isSelected ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
                 }`}>
@@ -75,7 +73,6 @@ export default function TaskSidebarList({ onNew, onSelect, onEdit, selectedId, r
                   {agentCount}
                 </span>
 
-                {/* Edit button — visible on hover */}
                 <button
                   onClick={e => { e.stopPropagation(); onEdit(task); }}
                   className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-indigo-100 text-gray-400 hover:text-indigo-500 transition-all"
