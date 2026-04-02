@@ -21,17 +21,43 @@ async def list_run_history(
 ):
     from sqlalchemy import func
 
-    base_stmt = select(TaskRun).options(
-        selectinload(TaskRun.task),
-        selectinload(TaskRun.schedule),
-    ).order_by(desc(TaskRun.created_at))
+    # Build base with optional trigger_type join filter
+    base = (
+        select(TaskRun)
+        .options(selectinload(TaskRun.task), selectinload(TaskRun.schedule))
+        .order_by(desc(TaskRun.created_at))
+    )
 
-    # Total count for pagination
-    count_stmt = select(func.count()).select_from(TaskRun)
-    total_result = await db.execute(count_stmt)
+    if trigger_type and trigger_type != "all":
+        # Join schedule to filter by trigger_type
+        # manual = no schedule OR schedule.trigger_type = 'manual'
+        if trigger_type == "manual":
+            base = base.outerjoin(TaskRun.schedule).where(
+                (TaskRun.schedule == None) |  # noqa
+                (Schedule.trigger_type == "manual")
+            )
+        else:
+            base = base.join(TaskRun.schedule).where(
+                Schedule.trigger_type == trigger_type
+            )
+
+    # Count with same filter
+    count_base = select(func.count()).select_from(TaskRun)
+    if trigger_type and trigger_type != "all":
+        if trigger_type == "manual":
+            count_base = count_base.outerjoin(TaskRun.schedule).where(
+                (TaskRun.schedule == None) |  # noqa
+                (Schedule.trigger_type == "manual")
+            )
+        else:
+            count_base = count_base.join(TaskRun.schedule).where(
+                Schedule.trigger_type == trigger_type
+            )
+
+    total_result = await db.execute(count_base)
     total = total_result.scalar()
 
-    stmt = base_stmt.limit(limit).offset(offset)
+    stmt = base.limit(limit).offset(offset)
     result = await db.execute(stmt)
     runs = result.scalars().all()
 
@@ -52,18 +78,13 @@ async def list_run_history(
             "schedule": {"id": str(sched.id), "name": sched.name, "trigger_type": t_type} if sched else None,
         }
 
-    serialized = [_serialize(r) for r in runs]
-
-    if trigger_type and trigger_type != "all":
-        serialized = [r for r in serialized if r["trigger_type"] == trigger_type]
-
     return {
-        "items": serialized,
+        "items": [_serialize(r) for r in runs],
         "total": total,
         "limit": limit,
         "offset": offset,
         "page": (offset // limit) + 1,
-        "total_pages": max(1, -(-total // limit)),  # ceiling division
+        "total_pages": max(1, -(-total // limit)),
     }
 
 

@@ -135,22 +135,44 @@ export default function RunHistoryPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [tabCounts, setTabCounts] = useState({});
   const intervalRef = useRef(null);
   const PAGE_SIZE = 50;
 
   useEffect(() => { setPage(1); }, [activeTab]);
   useEffect(() => { load(); }, [page, activeTab]);
+  useEffect(() => { loadTabCounts(); }, []);
 
   useEffect(() => {
     const hasActive = runs.some(r => ['RUNNING', 'IN_PROGRESS', 'PENDING'].includes(r.status?.toUpperCase()));
     setAutoRefresh(hasActive);
     if (hasActive) {
-      intervalRef.current = setInterval(load, 10000);
+      intervalRef.current = setInterval(() => { load(); loadTabCounts(); }, 10000);
     } else {
       clearInterval(intervalRef.current);
     }
     return () => clearInterval(intervalRef.current);
   }, [runs]);
+
+  const loadTabCounts = async () => {
+    try {
+      // Fetch counts for all tabs in parallel
+      const requests = TRIGGER_TABS.map(tab => {
+        const params = { limit: 1, offset: 0 };
+        if (tab.key !== 'all') params.trigger_type = tab.key;
+        return apiClient.get('/run-history/', { params })
+          .then(({ data }) => {
+            const tot = Array.isArray(data) ? data.length : (data.total || 0);
+            return [tab.key, tot];
+          })
+          .catch(() => [tab.key, 0]);
+      });
+      const results = await Promise.all(requests);
+      setTabCounts(Object.fromEntries(results));
+    } catch {
+      // silently fail — counts are non-critical
+    }
+  };
 
   const load = async () => {
     try {
@@ -165,6 +187,7 @@ export default function RunHistoryPage() {
       setRuns(items);
       setTotal(tot);
       setTotalPages(pages);
+      setTabCounts(prev => ({ ...prev, [activeTab]: tot }));
       setLogRun(prev => prev ? (items.find(r => r.id === prev.id) || prev) : null);
     } catch {
       // keep existing data on error
@@ -173,20 +196,10 @@ export default function RunHistoryPage() {
     }
   };
 
-  // Tab counts — use total for current tab, runs.length for others (approximate)
-  const tabCounts = TRIGGER_TABS.reduce((acc, tab) => {
-    acc[tab.key] = tab.key === activeTab
-      ? total
-      : runs.filter(r => tab.key === 'all' || r.trigger_type === tab.key).length;
-    return acc;
-  }, {});
-
   const visibleTabs = TRIGGER_TABS;
 
-  // Already filtered server-side when activeTab !== 'all'
-  const filtered = activeTab === 'all'
-    ? runs
-    : runs.filter(r => r.trigger_type === activeTab);
+  // Backend already filters — use runs directly
+  const filtered = runs;
 
   return (
     <>
@@ -225,11 +238,13 @@ export default function RunHistoryPage() {
                 >
                   <Icon size={13} strokeWidth={2} />
                   {tab.label}
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                    active ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {tabCounts[tab.key] ?? 0}
-                  </span>
+                  {tabCounts[tab.key] !== undefined && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                      active ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {tabCounts[tab.key]}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -255,10 +270,12 @@ export default function RunHistoryPage() {
                     key={run.id}
                     className={`border-b border-gray-50 hover:bg-gray-50/60 transition-colors ${i % 2 !== 0 ? 'bg-gray-50/30' : ''}`}
                   >
-                    <td className="px-6 py-4 text-sm font-medium text-gray-700">
-                      {run.schedule?.name || <span className="text-gray-400 italic text-xs">Manual</span>}
+                    <td className="px-6 py-4 text-sm font-medium text-gray-700 max-w-[160px]">
+                      <p className="truncate">{run.schedule?.name || <span className="text-gray-400 italic text-xs">Manual</span>}</p>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{run.task?.name || '—'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 max-w-[180px]">
+                      <p className="truncate">{run.task?.name || '—'}</p>
+                    </td>
                     <td className="px-6 py-4"><TriggerBadge type={run.trigger_type} /></td>
                     <td className="px-6 py-4 text-sm text-gray-500">{formatDate(run.started_at)}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{fmtDuration(run.duration_seconds)}</td>
