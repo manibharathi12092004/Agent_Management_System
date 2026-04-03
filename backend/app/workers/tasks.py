@@ -282,3 +282,50 @@ def execute_scheduled_tasks(self, schedule_id: str, input_data: dict = None):
 
     _run_async(_dispatch())
     log("Schedule dispatch complete")
+
+
+# =====================================================================
+# POLL EMAIL TRIGGERS (called by Beat every 60s)
+# =====================================================================
+
+@celery_app.task(name="app.workers.tasks.poll_email_triggers")
+def poll_email_triggers():
+    """Poll all active email-trigger schedules via IMAP."""
+    from app.workers.email_watcher import check_email_schedule
+
+    async def _fetch():
+        import app.models.schedule  # noqa
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+        from sqlalchemy.pool import NullPool
+        from app.config import settings
+        from app.repositories.schedule import ScheduleRepository
+
+        engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, echo=False)
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with session_factory() as db:
+                repo = ScheduleRepository(db)
+                return await repo.list_active_email()
+        finally:
+            await engine.dispose()
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        schedules = loop.run_until_complete(_fetch())
+    except Exception as e:
+        logger.error(f"[EmailPoller] Failed to fetch schedules: {e}")
+        return
+    finally:
+        loop.close()
+
+    total = 0
+    for schedule in schedules:
+        try:
+            count = check_email_schedule(schedule)
+            total += count
+        except Exception as e:
+            logger.error(f"[EmailPoller] Error checking '{schedule.name}': {e}")
+
+    if total:
+        logger.info(f"[EmailPoller] Processed {total} email(s) across {len(schedules)} schedule(s)")

@@ -9,6 +9,18 @@ from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
 from app.core.exceptions import NotFoundError, ValidationError
 
 
+def _encrypt_email_password(data_dict: dict) -> dict:
+    """If email trigger with plaintext password, encrypt it before saving."""
+    if data_dict.get("trigger_type") == "email":
+        plaintext = data_dict.pop("email_password", None)
+        if plaintext:
+            from app.core.security import encrypt_api_key
+            cfg = dict(data_dict.get("trigger_config") or {})
+            cfg["encrypted_password"] = encrypt_api_key(plaintext)
+            data_dict["trigger_config"] = cfg
+    return data_dict
+
+
 class ScheduleService:
 
     def __init__(self, db: AsyncSession):
@@ -27,11 +39,17 @@ class ScheduleService:
             if len(tasks) != len(data.task_ids):
                 raise ValidationError("One or more task IDs not found")
 
+        # Encrypt email password if provided
+        trigger_config = dict(data.trigger_config or {})
+        if data.trigger_type == "email" and data.email_password:
+            from app.core.security import encrypt_api_key
+            trigger_config["encrypted_password"] = encrypt_api_key(data.email_password)
+
         schedule = Schedule(
             name=data.name,
             trigger_type=data.trigger_type,
             cron_expression=data.cron_expression,
-            trigger_config=data.trigger_config,
+            trigger_config=trigger_config,
             is_active=data.is_active,
         )
         self.db.add(schedule)
@@ -62,7 +80,18 @@ class ScheduleService:
         if data.cron_expression is not None:
             schedule.cron_expression = data.cron_expression
         if data.trigger_config is not None:
-            schedule.trigger_config = data.trigger_config
+            trigger_config = dict(data.trigger_config)
+            # Preserve existing encrypted_password if no new password provided
+            if schedule.trigger_type == "email":
+                if data.email_password:
+                    from app.core.security import encrypt_api_key
+                    trigger_config["encrypted_password"] = encrypt_api_key(data.email_password)
+                elif "encrypted_password" not in trigger_config:
+                    # Keep the existing encrypted password from DB
+                    existing = dict(schedule.trigger_config or {})
+                    if "encrypted_password" in existing:
+                        trigger_config["encrypted_password"] = existing["encrypted_password"]
+            schedule.trigger_config = trigger_config
         if data.is_active is not None:
             schedule.is_active = data.is_active
 

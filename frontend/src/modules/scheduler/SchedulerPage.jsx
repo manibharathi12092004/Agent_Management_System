@@ -92,15 +92,30 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
     if ((form.trigger_type === 'folder_watch' || form.trigger_type === 'file_watch') && !form.trigger_config?.folder_path?.trim()) {
       toast.error('Folder path is required for watch triggers'); return;
     }
+    if (form.trigger_type === 'email') {
+      if (!form.trigger_config?.email?.trim()) { toast.error('Email address is required'); return; }
+      if (!form.trigger_config?.filter_from?.trim()) { toast.error('Filter from email is required'); return; }
+      if (!isEdit && !form.trigger_config?._plaintext_password?.trim()) {
+        toast.error('App password is required'); return;
+      }
+      if (!form.trigger_config?.imap_host?.trim()) { toast.error('IMAP host is required'); return; }
+    }
     setSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
         trigger_type: form.trigger_type,
         cron_expression: form.trigger_type === 'cron' ? form.cron_expression : null,
-        trigger_config: form.trigger_config || {},
+        trigger_config: (() => {
+          const cfg = { ...form.trigger_config };
+          // Remove the plaintext password field — backend handles encryption
+          delete cfg._plaintext_password;
+          return cfg;
+        })(),
         is_active: form.is_active,
         task_ids: form.task_ids,
+        // Pass plaintext password separately for backend to encrypt
+        email_password: form.trigger_type === 'email' ? form.trigger_config?._plaintext_password : undefined,
       };
       if (isEdit) {
         await schedulerService.update(schedule.id, payload);
@@ -161,9 +176,119 @@ function ScheduleForm({ schedule, tasks, onClose, onSuccess }) {
             ))}
           </div>
           {form.trigger_type === 'email' && (
-            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-2">
-              📧 Email trigger — coming in a future release.
-            </p>
+            <div className="mt-2 space-y-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
+              <div className="flex items-center gap-2 mb-1">
+                <Mail size={14} className="text-blue-500" strokeWidth={2} />
+                <p className="text-xs font-semibold text-blue-700">Email (IMAP) Configuration</p>
+              </div>
+
+              {/* Email address */}
+              <div>
+                <label className="label">Email Address *</label>
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="support@gmail.com"
+                  value={form.trigger_config?.email || ''}
+                  onChange={e => {
+                    const email = e.target.value;
+                    // Auto-fill IMAP host based on domain
+                    const domain = email.split('@')[1]?.toLowerCase() || '';
+                    const hostMap = {
+                      'gmail.com': 'imap.gmail.com',
+                      'googlemail.com': 'imap.gmail.com',
+                      'outlook.com': 'imap-mail.outlook.com',
+                      'hotmail.com': 'imap-mail.outlook.com',
+                      'live.com': 'imap-mail.outlook.com',
+                      'yahoo.com': 'imap.mail.yahoo.com',
+                      'yahoo.co.in': 'imap.mail.yahoo.com',
+                    };
+                    const autoHost = hostMap[domain] || form.trigger_config?.imap_host || '';
+                    set('trigger_config', {
+                      ...form.trigger_config,
+                      email,
+                      imap_host: autoHost,
+                      imap_port: form.trigger_config?.imap_port || 993,
+                    });
+                  }}
+                />
+              </div>
+
+              {/* App password */}
+              <div>
+                <label className="label">App Password {isEdit ? '(leave blank to keep existing)' : '*'}</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={isEdit ? "Leave blank to keep existing password" : "xxxx-xxxx-xxxx-xxxx"}
+                  value={form.trigger_config?._plaintext_password || ''}
+                  onChange={e => set('trigger_config', {
+                    ...form.trigger_config,
+                    _plaintext_password: e.target.value,
+                  })}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Gmail: Google Account → Security → App Passwords. Do NOT use your main password.
+                </p>
+              </div>
+
+              {/* Filter from email */}
+              <div>
+                <label className="label">Trigger only from this email address *</label>
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="boss@company.com"
+                  value={form.trigger_config?.filter_from || ''}
+                  onChange={e => set('trigger_config', { ...form.trigger_config, filter_from: e.target.value })}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Workflow triggers only when a new email arrives from this sender.
+                </p>
+              </div>
+
+              {/* Filter subject */}
+              <div>
+                <label className="label">Trigger only if subject contains (optional)</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Invoice, Report, Alert..."
+                  value={form.trigger_config?.filter_subject || ''}
+                  onChange={e => set('trigger_config', { ...form.trigger_config, filter_subject: e.target.value })}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Leave empty to trigger on all emails from the sender above.
+                </p>
+              </div>
+
+              {/* IMAP host + port */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="label">IMAP Host</label>
+                  <input
+                    className="input font-mono text-sm"
+                    placeholder="imap.gmail.com"
+                    value={form.trigger_config?.imap_host || ''}
+                    onChange={e => set('trigger_config', { ...form.trigger_config, imap_host: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">Port</label>
+                  <input
+                    className="input font-mono text-sm"
+                    type="number"
+                    placeholder="993"
+                    value={form.trigger_config?.imap_port || 993}
+                    onChange={e => set('trigger_config', { ...form.trigger_config, imap_port: parseInt(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              <p className="text-[10px] text-blue-600 bg-blue-100 rounded-lg px-3 py-2">
+                📬 Polls every 60 seconds for new unread emails. Each new email triggers the workflow.
+              </p>
+            </div>
           )}
         </div>
 

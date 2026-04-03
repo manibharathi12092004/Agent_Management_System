@@ -97,6 +97,16 @@ class ScheduleRepository(BaseRepository[Schedule]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_active_email(self) -> list[Schedule]:
+        """Return active email schedules — used by email poller."""
+        stmt = (
+            select(Schedule)
+            .where(Schedule.is_active.is_(True))
+            .where(Schedule.trigger_type == "email")
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def replace_tasks(self, schedule_id: UUID, task_ids: list[UUID]) -> None:
         """Replace all task associations for a schedule."""
         # Delete existing

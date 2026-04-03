@@ -83,6 +83,10 @@ class DatabaseScheduler(PersistentScheduler):
 
     max_interval = 5  # Beat wakes up every 5s to check due tasks
 
+    def __init__(self, *args, **kwargs):
+        self._registered_keys: set[str] = set()  # track keys we've already registered
+        super().__init__(*args, **kwargs)
+
     def setup_schedule(self):
         # Auto-recover corrupted shelve
         try:
@@ -92,7 +96,17 @@ class DatabaseScheduler(PersistentScheduler):
             self._destroy_shelve()
             super().setup_schedule()
 
-        # Initial load
+        # Add email poller as a fixed periodic task (every 60s)
+        # Must be done AFTER super().setup_schedule() so merge_inplace works
+        self.app.conf.beat_schedule["email-poll"] = {
+            "task": "app.workers.tasks.poll_email_triggers",
+            "schedule": 60.0,
+            "args": [],
+        }
+        self.merge_inplace({"email-poll": self.app.conf.beat_schedule["email-poll"]})
+        self.sync()
+
+        # Initial load of cron schedules
         self._apply_db_schedules()
 
         # Start background polling thread
@@ -122,20 +136,21 @@ class DatabaseScheduler(PersistentScheduler):
 
         active_keys = {f"schedule:{s['id']}" for s in schedules}
 
-        # Remove deactivated entries
+        # Remove deactivated cron entries (never touch email-poll)
         removed = 0
         for key in [k for k in list(self.data.keys()) if k.startswith("schedule:")]:
             if key not in active_keys:
                 del self.data[key]
                 self.app.conf.beat_schedule.pop(key, None)
+                self._registered_keys.discard(key)
                 removed += 1
                 logger.info(f"[Beat] - Removed '{key}'")
 
-        # Add new entries
+        # Add new cron entries — only call merge_inplace ONCE per key
         added = 0
         for sched in schedules:
             key = f"schedule:{sched['id']}"
-            if key not in self.data:
+            if key not in self._registered_keys:
                 try:
                     entry_def = {
                         "task": "app.workers.tasks.execute_scheduled_tasks",
@@ -144,10 +159,27 @@ class DatabaseScheduler(PersistentScheduler):
                     }
                     self.app.conf.beat_schedule[key] = entry_def
                     self.merge_inplace({key: entry_def})
+                    # Set last_run_at to 2 minutes ago so it fires on the next due time
+                    if key in self.data:
+                        from datetime import datetime, timezone, timedelta
+                        self.data[key].last_run_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+                    self._registered_keys.add(key)
                     added += 1
                     logger.info(f"[Beat] + '{sched['name']}' [{sched['cron_expression']}]")
                 except Exception as e:
                     logger.error(f"[Beat] Failed to add '{sched['name']}': {e}")
+
+        # Ensure email-poll stays — only register once
+        if "email-poll" not in self._registered_keys:
+            email_poll_def = {
+                "task": "app.workers.tasks.poll_email_triggers",
+                "schedule": 60.0,
+                "args": [],
+            }
+            self.app.conf.beat_schedule["email-poll"] = email_poll_def
+            self.merge_inplace({"email-poll": email_poll_def})
+            self._registered_keys.add("email-poll")
+            logger.info("[Beat] + email-poll task registered")
 
         if removed or added:
             self.sync()

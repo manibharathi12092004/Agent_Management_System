@@ -54,6 +54,7 @@ class ScheduleCreate(BaseModel):
     trigger_config: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
     task_ids: list[UUID] = Field(default_factory=list)
+    email_password: str | None = None  # plaintext — encrypted by service before saving
 
     @field_validator("cron_expression")
     @classmethod
@@ -77,6 +78,7 @@ class ScheduleUpdate(BaseModel):
     trigger_config: dict[str, Any] | None = None
     is_active: bool | None = None
     task_ids: list[UUID] | None = None
+    email_password: str | None = None  # plaintext — encrypted by service before saving
 
     @field_validator("cron_expression")
     @classmethod
@@ -103,12 +105,16 @@ class ScheduleResponse(BaseModel):
 
     @classmethod
     def from_orm(cls, schedule):
+        # Strip encrypted_password from trigger_config before returning to frontend
+        cfg = dict(schedule.trigger_config or {})
+        cfg.pop("encrypted_password", None)
+
         return cls(
             id=schedule.id,
             name=schedule.name,
             trigger_type=schedule.trigger_type,
             cron_expression=schedule.cron_expression,
-            trigger_config=schedule.trigger_config or {},
+            trigger_config=cfg,
             is_active=schedule.is_active,
             tasks=[TaskNestedResponse.from_orm(t) for t in (schedule.tasks or [])],
             created_at=schedule.created_at,
