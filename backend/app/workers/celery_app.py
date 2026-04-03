@@ -31,7 +31,10 @@ def start_file_watchers(**kwargs):
     """Start folder/file watchers when Celery worker comes online."""
     try:
         from app.workers.watchers.watcher_manager import get_manager
-        get_manager().start()
+        manager = get_manager()
+        manager.start()
+        import logging
+        logging.getLogger(__name__).info("[Worker] File/folder watchers started")
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to start file watchers: {e}")

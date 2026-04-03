@@ -1,8 +1,9 @@
 """
-Dynamic Celery Beat Scheduler — polls PostgreSQL every 30 seconds.
+Dynamic Celery Beat Scheduler — pure in-memory, no shelve files.
 
-Extends PersistentScheduler. Uses a background thread to poll the DB
-so the main Beat tick loop is never blocked or broken.
+Uses base Scheduler (not PersistentScheduler) to avoid all shelve/merge_inplace issues.
+Polls PostgreSQL every 30 seconds for cron schedule changes.
+Email poll runs every 60 seconds as a fixed task.
 
 Usage:
   celery -A app.workers.celery_app beat \
@@ -14,9 +15,10 @@ import asyncio
 import logging
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 
-from celery.beat import PersistentScheduler
-from celery.schedules import crontab
+from celery.beat import Scheduler, ScheduleEntry
+from celery.schedules import crontab, schedule as periodic_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -72,131 +74,125 @@ def _parse_crontab(expr: str) -> crontab:
                    day_of_month=dom, month_of_year=month, day_of_week=dow)
 
 
-# ── Scheduler ─────────────────────────────────────────────────────────
+def _make_entry(name: str, task: str, sched, args: list, app) -> ScheduleEntry:
+    """Create a ScheduleEntry with last_run_at set to 2 minutes ago so it fires immediately."""
+    return ScheduleEntry(
+        name=name,
+        task=task,
+        schedule=sched,
+        args=args,
+        kwargs={},
+        options={},
+        last_run_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        total_run_count=0,
+        relative=False,
+        app=app,
+    )
 
-class DatabaseScheduler(PersistentScheduler):
+
+# ── Pure in-memory scheduler ──────────────────────────────────────────
+
+class DatabaseScheduler(Scheduler):
     """
-    Polls PostgreSQL every SYNC_INTERVAL seconds via a background thread.
-    The background thread is the ONLY place DB polling happens — Beat's
-    tick loop is never touched, so no signature/heapq issues.
+    Pure in-memory Beat scheduler.
+    - No shelve files
+    - No merge_inplace
+    - Polls DB every 30s via background thread
+    - email-poll fires every 60s as a fixed entry
     """
 
-    max_interval = 5  # Beat wakes up every 5s to check due tasks
+    max_interval = 5  # check for due tasks every 5 seconds
 
     def __init__(self, *args, **kwargs):
-        self._registered_keys: set[str] = set()  # track keys we've already registered
+        # _store is our in-memory dict — replaces shelve
+        self._store: dict[str, ScheduleEntry] = {}
+        self._lock = threading.Lock()
         super().__init__(*args, **kwargs)
 
     def setup_schedule(self):
-        # Auto-recover corrupted shelve
-        try:
-            super().setup_schedule()
-        except Exception as e:
-            logger.warning(f"[Beat] Shelve corrupted ({e}), rebuilding...")
-            self._destroy_shelve()
-            super().setup_schedule()
+        """Called once at startup — register fixed tasks and start DB poller."""
+        self.install_default_entries(self._store)
 
-        # Add email poller as a fixed periodic task (every 60s)
-        # Must be done AFTER super().setup_schedule() so merge_inplace works
-        self.app.conf.beat_schedule["email-poll"] = {
-            "task": "app.workers.tasks.poll_email_triggers",
-            "schedule": 60.0,
-            "args": [],
-        }
-        self.merge_inplace({"email-poll": self.app.conf.beat_schedule["email-poll"]})
-        self.sync()
-
-        # Initial load of cron schedules
-        self._apply_db_schedules()
-
-        # Start background polling thread
-        self._stop_event = threading.Event()
-        self._poll_thread = threading.Thread(
-            target=self._poll_loop,
-            daemon=True,
-            name="beat-db-poller",
+        # Fixed: email poll every 60 seconds
+        self._store["email-poll"] = _make_entry(
+            name="email-poll",
+            task="app.workers.tasks.poll_email_triggers",
+            sched=periodic_schedule(60.0),
+            args=[],
+            app=self.app,
         )
-        self._poll_thread.start()
+        logger.info("[Beat] + email-poll (every 60s)")
+
+        # Initial cron load
+        self._sync_cron()
+
+        # Background thread for DB polling
+        self._stop_event = threading.Event()
+        t = threading.Thread(target=self._poll_loop, daemon=True, name="beat-db-poller")
+        t.start()
         logger.info(f"[Beat] DB poller started (interval={SYNC_INTERVAL}s)")
 
     def _poll_loop(self):
-        """Background thread: polls DB every SYNC_INTERVAL seconds."""
         while not self._stop_event.is_set():
             self._stop_event.wait(SYNC_INTERVAL)
             if not self._stop_event.is_set():
-                self._apply_db_schedules()
+                self._sync_cron()
 
-    def _apply_db_schedules(self):
-        """Fetch DB schedules and update beat_schedule + persistent store."""
+    def _sync_cron(self):
+        """Fetch active cron schedules and update in-memory store."""
         schedules, success = _fetch_active_cron_schedules()
-
         if not success:
             logger.warning("[Beat] DB poll failed — keeping existing entries")
             return
 
         active_keys = {f"schedule:{s['id']}" for s in schedules}
 
-        # Remove deactivated cron entries (never touch email-poll)
-        removed = 0
-        for key in [k for k in list(self.data.keys()) if k.startswith("schedule:")]:
-            if key not in active_keys:
-                del self.data[key]
-                self.app.conf.beat_schedule.pop(key, None)
-                self._registered_keys.discard(key)
-                removed += 1
-                logger.info(f"[Beat] - Removed '{key}'")
+        with self._lock:
+            # Remove deactivated
+            removed = 0
+            for key in [k for k in list(self._store.keys()) if k.startswith("schedule:")]:
+                if key not in active_keys:
+                    del self._store[key]
+                    removed += 1
+                    logger.info(f"[Beat] - Removed '{key}'")
 
-        # Add new cron entries — only call merge_inplace ONCE per key
-        added = 0
-        for sched in schedules:
-            key = f"schedule:{sched['id']}"
-            if key not in self._registered_keys:
-                try:
-                    entry_def = {
-                        "task": "app.workers.tasks.execute_scheduled_tasks",
-                        "schedule": _parse_crontab(sched["cron_expression"]),
-                        "args": [sched["id"]],
-                    }
-                    self.app.conf.beat_schedule[key] = entry_def
-                    self.merge_inplace({key: entry_def})
-                    # Set last_run_at to 2 minutes ago so it fires on the next due time
-                    if key in self.data:
-                        from datetime import datetime, timezone, timedelta
-                        self.data[key].last_run_at = datetime.now(timezone.utc) - timedelta(minutes=2)
-                    self._registered_keys.add(key)
-                    added += 1
-                    logger.info(f"[Beat] + '{sched['name']}' [{sched['cron_expression']}]")
-                except Exception as e:
-                    logger.error(f"[Beat] Failed to add '{sched['name']}': {e}")
-
-        # Ensure email-poll stays — only register once
-        if "email-poll" not in self._registered_keys:
-            email_poll_def = {
-                "task": "app.workers.tasks.poll_email_triggers",
-                "schedule": 60.0,
-                "args": [],
-            }
-            self.app.conf.beat_schedule["email-poll"] = email_poll_def
-            self.merge_inplace({"email-poll": email_poll_def})
-            self._registered_keys.add("email-poll")
-            logger.info("[Beat] + email-poll task registered")
+            # Add new
+            added = 0
+            for sched in schedules:
+                key = f"schedule:{sched['id']}"
+                if key not in self._store:
+                    try:
+                        self._store[key] = _make_entry(
+                            name=key,
+                            task="app.workers.tasks.execute_scheduled_tasks",
+                            sched=_parse_crontab(sched["cron_expression"]),
+                            args=[sched["id"]],
+                            app=self.app,
+                        )
+                        added += 1
+                        logger.info(f"[Beat] + '{sched['name']}' [{sched['cron_expression']}]")
+                    except Exception as e:
+                        logger.error(f"[Beat] Failed to add '{sched['name']}': {e}")
 
         if removed or added:
-            self.sync()
             logger.info(f"[Beat] Sync — {len(schedules)} active, {removed} removed, {added} added")
-        else:
-            logger.debug(f"[Beat] Sync — {len(schedules)} active, no changes")
 
-    def _destroy_shelve(self):
-        import os, glob
-        for f in glob.glob(self.schedule_filename + "*"):
-            try:
-                os.remove(f)
-                logger.info(f"[Beat] Removed corrupted file: {f}")
-            except Exception:
-                pass
+    # ── Required overrides ────────────────────────────────────────────
+
+    @property
+    def schedule(self):
+        return self._store
+
+    def get_schedule(self):
+        return self._store
+
+    def set_schedule(self, schedule):
+        self._store = schedule
+
+    def sync(self):
+        pass  # nothing to persist — pure in-memory
 
     def close(self):
         if hasattr(self, '_stop_event'):
             self._stop_event.set()
-        super().close()
+        self.sync()
