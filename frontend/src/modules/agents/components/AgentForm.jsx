@@ -207,7 +207,7 @@ export default function AgentForm({ open, agent = null, preselectedDomainId = nu
           <select className="input" value={form.llm_config_id} onChange={(e) => set('llm_config_id', e.target.value)}>
             <option value="">Use system default</option>
             {llmConfigs.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} ({c.provider})</option>
+              <option key={c.id} value={c.id}>{c.provider} ({c.model_name})</option>
             ))}
           </select>
         </div>
